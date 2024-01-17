@@ -11,6 +11,7 @@ use action::{LocalType, LocalType::*};
 pub fn infer_session_type(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemFn);
     let fn_ident = item.sig.ident.to_string();
+    println!("Processing {}", fn_ident);
     let output = infer_block_session_type(&item.block).to_string();
     let session_type_id = format_ident!("print_session_type_{}", fn_ident);
     println!("{}", session_type_id);
@@ -40,11 +41,32 @@ fn infer_block_session_type(item: &syn::Block) -> LocalType {
     sequence_session_types(actions)
 }
 
+fn parse_call() {
+
+}
+
 fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<LocalType>, String> {
     println!("{:?}", expr.span().source_text().unwrap());
     match expr {
+        syn::Expr::Call(call) => {
+            println!("Parsing call args for {:?}", call.func.span().source_text().unwrap());
+            let arg_psts: Result<Vec<_>, _> = dbg!(call.args.iter().map(|arg| gen_session_type(arg, session_ident)).collect());
+            let arg_psts: Vec<LocalType> = arg_psts?.iter().filter_map(|arg| arg.clone()).collect();
+            let arg_combined_pst = sequence_session_types(arg_psts);
+
+            let call_pst = gen_session_type(&call.func, session_ident)?.unwrap_or(LocalType::End);
+
+            Ok(Some(map_end_to(&call_pst, arg_combined_pst)))
+        }
         syn::Expr::MethodCall(method_call) => {
-            if let syn::Expr::Path(path) = &*method_call.receiver {
+            // Parse method call's argument local types
+            println!("Parsing method call args for {:?}", method_call.method.to_string());
+            let arg_psts: Result<Vec<_>, _> = dbg!(method_call.args.iter().map(|arg| gen_session_type(arg, session_ident)).collect());
+            let arg_psts: Vec<LocalType> = arg_psts?.iter().filter_map(|arg| arg.clone()).collect();
+            let arg_combined_pst = sequence_session_types(arg_psts);
+
+            // Parse method call's receiver to send or receive
+            let session_call: Result<Option<LocalType>, String> = if let syn::Expr::Path(path) = &*method_call.receiver {
                 if let Some(ident) = path.path.get_ident() {
                     if ident == session_ident {
                         let method_name = method_call.method.to_string();
@@ -81,14 +103,16 @@ fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<Loca
                                 return Err("Invalid method call".to_string());
                             }
                     } else {
-                        return Ok(None);
+                        Ok(None)
                     }
                 } else {
-                    return Ok(None);
+                    Ok(None)
                 }
             } else {
-                return Ok(None);
-            }
+                Ok(None)
+            };
+
+            Ok(Some(map_end_to(&arg_combined_pst, session_call?.unwrap_or(LocalType::End))))
         },
         syn::Expr::While(while_expr) => {
             println!("Parsing while loop");
@@ -103,6 +127,18 @@ fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<Loca
                 block_type_with_choice
             };
             Ok(Some(RecX(Box::new(block_with_cond))))
+        },
+        syn::Expr::Block(block) => {
+            println!("Parsing block");
+            Ok(Some(infer_block_session_type(&block.block)))
+        },
+        syn::Expr::Group(group) => {
+            println!("Parsing group");
+            gen_session_type(&group.expr, session_ident)
+        },
+        syn::Expr::Paren(paren) => {
+            println!("Parsing paren");
+            gen_session_type(&paren.expr, session_ident)
         },
         _ => Ok(None)
     }
