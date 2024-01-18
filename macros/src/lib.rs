@@ -128,6 +128,15 @@ fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<Loca
             };
             Ok(Some(RecX(Box::new(block_with_cond))))
         },
+        syn::Expr::ForLoop(for_expr) => {
+            println!("Parsing for loop");
+            let pat_type = gen_session_type(&for_expr.expr, session_ident)?.unwrap_or(End);
+            let body_type = infer_block_session_type(&for_expr.body);
+            let body_type_with_x = Box::new(map_end_to(&body_type, X));
+            let block_type_with_choice = RecX(Box::new(InternalChoice(vec![body_type_with_x, Box::new(End)])));
+            let block_with_pat = map_end_to(&pat_type, block_type_with_choice);
+            Ok(Some(block_with_pat))
+        },
         syn::Expr::Block(block) => {
             println!("Parsing block");
             Ok(Some(infer_block_session_type(&block.block)))
