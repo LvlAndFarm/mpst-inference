@@ -111,6 +111,29 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
             let block_with_pat = map_end_to(&pat_type, block_type_with_choice);
             Ok(Some(block_with_pat))
         },
+        syn::Expr::Match(match_expr) => {
+            println!("Parsing match");
+            let mut session_choices = vec![];
+            for arm in &match_expr.arms {
+                match &arm.pat {
+                    syn::Pat::TupleStruct(tuple_struct) => {
+                        let label = tuple_struct.path.segments.last().unwrap().ident.to_string();
+                        let cont = gen_session_type(&arm.body, session_ident)?.unwrap_or(End);
+                        session_choices.push(Box::new(Receive(label, Box::new(cont))));
+                    },
+                    syn::Pat::Path(path) => {
+                        let label = path.path.segments.last().unwrap().ident.to_string();
+                        let cont = gen_session_type(&arm.body, session_ident)?.unwrap_or(End);
+                        session_choices.push(Box::new(Receive(label, Box::new(cont))));
+                    },
+                    _ => {
+                        return Err("Invalid match arm".to_string());
+                    }
+                }
+                println!("{} => {}", arm.pat.span().unwrap().source_text().unwrap(), arm.body.span().unwrap().source_text().unwrap());
+            }
+            Ok(Some(ExternalChoice(session_choices)))
+        },
         syn::Expr::Block(block) => {
             println!("Parsing block");
             Ok(Some(infer_block_session_type(&block.block)))

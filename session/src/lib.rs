@@ -1,3 +1,6 @@
+pub mod action;
+pub mod session_type;
+
 pub struct Session;
 
 pub trait Message {
@@ -14,6 +17,11 @@ impl Session {
     }
 
     pub fn receive<T: Message>(&mut self) -> T {
+        println!("Receiving message");
+        T::receive()
+    }
+
+    pub fn select<T: Message>(&mut self) -> T {
         println!("Receiving message");
         T::receive()
     }
