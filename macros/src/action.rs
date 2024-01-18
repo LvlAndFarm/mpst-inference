@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, collections::HashSet};
 
 use crate::session_type::{SessionType, Participant};
 
@@ -39,17 +39,21 @@ impl LocalType {
             },
             LocalType::InternalChoice(choices) => {
                 let mut session_choices = Vec::new();
+                let mut unique_labels = HashSet::new();
                 for choice in choices {
                     match choice.as_ref() {
                         LocalType::Send(label, cont) => {
+                            if unique_labels.contains(label) {
+                                return Err(format!("Label {} is not unique", label));
+                            }
+                            unique_labels.insert(label);
                             let cont = cont.to_session_type()?;
-                            session_choices.push(SessionType::Send(Participant::anonymous(), label.clone(), Box::new(cont)));
+                            session_choices.push((label.to_owned(), cont));
                         },
                         _ => {
                             return Err(format!("Internal choice must be followed by a send, found {}", choice));
                         }
                     }
-                    session_choices.push(choice.to_session_type()?);
                 }
                 Ok(SessionType::Select(Participant::anonymous(), session_choices))
             },

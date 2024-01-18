@@ -31,17 +31,17 @@ impl Message for Response {
     }
 }
 
-// #[infer_session_type]
-// fn example(mut s: Session) {
-//     s.send(Hello);
-//     s.receive::<Bye>();
-//     println!("Hello world");
-//     while true {
-//         s.send(Hello);
-//         s.receive::<Bye>();
-//     }
-//     s.send::<Bye>();
-// }
+#[infer_session_type]
+fn example(mut s: Session) {
+    s.send(Hello);
+    s.receive::<Bye>();
+    println!("Hello world");
+    while true {
+        s.send(Hello);
+        s.receive::<Bye>();
+    }
+    s.send(Bye);
+}
 
 fn _ignore(_l: Hello, _ll: Hello) {
 }
@@ -59,6 +59,21 @@ fn example_internal_choice(mut s: Session) {
         i+=1;
     }
     s.send(Bye);
+}
+
+#[infer_session_type]
+fn example_conflicting_choice(mut s: Session) {
+    s.send(Hello);
+    s.receive::<Olleh>();
+    println!("Hello world");
+    
+    let mut i = 0;
+    while i < 10 {
+        s.send(Query);
+        s.receive::<Response>();
+        i+=1;
+    }
+    s.send(Query);
 }
 
 #[infer_session_type]
