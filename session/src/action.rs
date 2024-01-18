@@ -58,12 +58,25 @@ impl LocalType {
                 Ok(SessionType::Select(Participant::anonymous(), session_choices))
             },
             LocalType::ExternalChoice(choices) => {
-                unimplemented!("External choice not implemented");
-                // let mut session_choices = Vec::new();
-                // for choice in choices {
-                //     session_choices.push(choice.to_session_type()?);
-                // }
-                // Ok(SessionType::Branch(Participant::anonymous(), session_choices))
+                // unimplemented!("External choice not implemented");
+                let mut session_choices = Vec::new();
+                let mut unique_labels = HashSet::new();
+                for choice in choices {
+                    match choice.as_ref() {
+                        LocalType::Receive(label, cont) => {
+                            if unique_labels.contains(label) {
+                                return Err(format!("Label {} is not unique", label));
+                            }
+                            unique_labels.insert(label);
+                            let cont = cont.to_session_type()?;
+                            session_choices.push((label.to_owned(), cont));
+                        },
+                        _ => {
+                            return Err(format!("External choice must be followed by a receive, found {}", choice));
+                        }
+                    }
+                }
+                Ok(SessionType::Branch(Participant::anonymous(), session_choices))
             },
             LocalType::RecX(ty) => {
                 let ty = ty.to_session_type()?;

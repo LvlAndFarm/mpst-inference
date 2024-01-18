@@ -1,6 +1,6 @@
 use syn::{punctuated::Punctuated, FnArg, token::Comma, spanned::Spanned};
 
-use crate::action::{LocalType, LocalType::*};
+use session::action::{LocalType, LocalType::*};
 
 pub fn infer_block_session_type(item: &syn::Block) -> LocalType {
     let session_var = "s";

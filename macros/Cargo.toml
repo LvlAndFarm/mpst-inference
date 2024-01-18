@@ -13,3 +13,4 @@ session = {path = "../session"}
 syn = {version = "*", features = ["full"]}
 proc-macro2 = "*"
 quote = "1.0.35"
+expect-test = "1.4.1"

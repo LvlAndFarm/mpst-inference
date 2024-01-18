@@ -2,9 +2,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::format_ident;
-mod action;
 
-mod session_type;
 mod parse;
 
 #[proc_macro_attribute]
