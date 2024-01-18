@@ -1,6 +1,6 @@
 use std::{fmt::Display, collections::HashSet};
 
-use crate::session_type::{SessionType, Participant};
+use crate::session_type::{MPSTLocalType, Participant};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalType {
@@ -27,15 +27,15 @@ pub enum PartialLocalType {
 }
 
 impl LocalType {
-    pub fn to_session_type(&self) -> Result<SessionType, String> {
+    pub fn to_session_type(&self) -> Result<MPSTLocalType, String> {
         match self {
             LocalType::Send(label, ty) => {
                 let ty = ty.to_session_type()?;
-                Ok(SessionType::Send(Participant::anonymous(), label.clone(), Box::new(ty)))
+                Ok(MPSTLocalType::Send(Participant::anonymous(), label.clone(), Box::new(ty)))
             },
             LocalType::Receive(label, ty) => {
                 let ty = ty.to_session_type()?;
-                Ok(SessionType::Receive(Participant::anonymous(), label.clone(), Box::new(ty)))
+                Ok(MPSTLocalType::Receive(Participant::anonymous(), label.clone(), Box::new(ty)))
             },
             LocalType::InternalChoice(choices) => {
                 let mut session_choices = Vec::new();
@@ -55,7 +55,7 @@ impl LocalType {
                         }
                     }
                 }
-                Ok(SessionType::Select(Participant::anonymous(), session_choices))
+                Ok(MPSTLocalType::Select(Participant::anonymous(), session_choices))
             },
             LocalType::ExternalChoice(choices) => {
                 // unimplemented!("External choice not implemented");
@@ -76,14 +76,14 @@ impl LocalType {
                         }
                     }
                 }
-                Ok(SessionType::Branch(Participant::anonymous(), session_choices))
+                Ok(MPSTLocalType::Branch(Participant::anonymous(), session_choices))
             },
             LocalType::RecX(ty) => {
                 let ty = ty.to_session_type()?;
-                Ok(SessionType::RecX(Box::new(ty)))
+                Ok(MPSTLocalType::RecX(Box::new(ty)))
             },
-            LocalType::X => Ok(SessionType::X),
-            LocalType::End => Ok(SessionType::End)
+            LocalType::X => Ok(MPSTLocalType::X),
+            LocalType::End => Ok(MPSTLocalType::End)
         }
     }
 }

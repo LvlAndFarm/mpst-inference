@@ -112,7 +112,6 @@ fn example_external_choice(mut s: Session) {
     println!("Hello world");
     
     match s.select::<Status>() {
-        #[ok]
         Status::Healthy => {
             let mut i = 0;
             while i < 10 {
