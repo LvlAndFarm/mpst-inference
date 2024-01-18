@@ -31,17 +31,17 @@ impl Message for Response {
     }
 }
 
-#[infer_session_type]
-fn example(mut s: Session) {
-    s.send(Hello);
-    s.receive::<Bye>();
-    println!("Hello world");
-    while true {
-        s.send(Hello);
-        s.receive::<Bye>();
-    }
-    s.receive::<Bye>();
-}
+// #[infer_session_type]
+// fn example(mut s: Session) {
+//     s.send(Hello);
+//     s.receive::<Bye>();
+//     println!("Hello world");
+//     while true {
+//         s.send(Hello);
+//         s.receive::<Bye>();
+//     }
+//     s.send::<Bye>();
+// }
 
 fn _ignore(_l: Hello, _ll: Hello) {
 }
@@ -81,7 +81,7 @@ fn example_func_arg_calls(mut s: Session) {
 
 #[test]
 fn it_works() {
-    print_session_type_example_func_arg_calls()
+    rumpsteak_session_type_example_internal_choice()
     // let result = add(2, 2);
     // assert_eq!(result, 4);
 }
