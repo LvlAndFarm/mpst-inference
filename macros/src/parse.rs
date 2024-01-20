@@ -170,6 +170,12 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
             let body_type_with_x = body_type.map_end_to(X);
             Ok(Some(RecX(Box::new(body_type_with_x))))
         },
+        syn::Expr::Assign(assign_expr) => {
+            println!("Parsing assign");
+            let rhs_type = gen_session_type(&assign_expr.right, session_ident)?;
+            let rhs_type = rhs_type.unwrap_or(End);
+            Ok(Some(rhs_type))
+        },
         syn::Expr::Block(block) => {
             println!("Parsing block");
             Ok(Some(infer_block_session_type(&block.block)?))
