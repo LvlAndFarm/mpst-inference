@@ -1,3 +1,4 @@
+use quote::ToTokens;
 use syn::{punctuated::Punctuated, FnArg, token::Comma, spanned::Spanned};
 
 use session::ilt::{LocalType, PartialLocalType};
@@ -8,7 +9,7 @@ pub fn infer_block_session_type(item: &syn::Block) -> Result<PartialLocalType, S
     for stmt in &item.stmts {
         match stmt {
             syn::Stmt::Expr(expr, _tok) => {
-                if let Ok(Some(action)) = gen_session_type(expr, session_var) {
+                if let Some(action) = gen_session_type(expr, session_var)? {
                     actions.push(action);
                 }
             }
@@ -170,12 +171,58 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
             let body_type_with_x = body_type.map_end_to(X);
             Ok(Some(RecX(Box::new(body_type_with_x))))
         },
+        syn::Expr::Let(let_expr) => {
+            println!("Parsing let");
+            let rhs_type = gen_session_type(&let_expr.expr, session_ident)?;
+            let rhs_type = rhs_type.unwrap_or(End);
+            Ok(Some(rhs_type))
+        },
         syn::Expr::Assign(assign_expr) => {
             println!("Parsing assign");
             let rhs_type = gen_session_type(&assign_expr.right, session_ident)?;
             let rhs_type = rhs_type.unwrap_or(End);
             Ok(Some(rhs_type))
         },
+        syn::Expr::Struct(struct_expr) => {
+            println!("Parsing struct");
+            let mut fields = vec![];
+            for field in &struct_expr.fields {
+                let field_type = gen_session_type(&field.expr, session_ident)?;
+                let field_type = field_type.unwrap_or(End);
+                fields.push(field_type)
+            }
+            Ok(Some(sequence_session_types(fields)?))
+        },
+        syn::Expr::Binary(binary_expr) => {
+            println!("Parsing binary");
+            let lhs_type = gen_session_type(&binary_expr.left, session_ident)?;
+            let lhs_type = lhs_type.unwrap_or(End);
+            let rhs_type = gen_session_type(&binary_expr.right, session_ident)?;
+            let rhs_type = rhs_type.unwrap_or(End);
+            Ok(Some(sequence_session_types(vec![lhs_type, rhs_type])?))
+        },
+        syn::Expr::Unary(unary_expr) => {
+            println!("Parsing unary");
+            let rhs_type = gen_session_type(&unary_expr.expr, session_ident)?;
+            let rhs_type = rhs_type.unwrap_or(End);
+            Ok(Some(rhs_type))
+        },
+        syn::Expr::Range(range_expr) => {
+            println!("Parsing range");
+            let lhs_type = match &range_expr.start {
+                Some(start) => gen_session_type(start, session_ident)?,
+                None => None
+            };
+            let lhs_type = lhs_type.unwrap_or(End);
+            let rhs_type = match &range_expr.end {
+                Some(start) => gen_session_type(start, session_ident)?,
+                None => None
+            };
+            let rhs_type = rhs_type.unwrap_or(End);
+            Ok(Some(sequence_session_types(vec![lhs_type, rhs_type])?))
+        },
+        syn::Expr::Lit(_) => Ok(None),
+        syn::Expr::Path(_) => Ok(None),
         syn::Expr::Block(block) => {
             println!("Parsing block");
             Ok(Some(infer_block_session_type(&block.block)?))
@@ -188,7 +235,10 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
             println!("Parsing paren");
             gen_session_type(&paren.expr, session_ident)
         },
-        _ => Ok(None)
+        _ => Err(format!("Unsupported Rust construct: {}, of type {:?}", 
+                expr.span().source_text().unwrap_or(String::from("ERROR printing expr")),
+                expr.to_token_stream()
+            )),
     }
 }
 
