@@ -54,7 +54,7 @@ fn example(mut s: Session) {
     s.send(Bye);
 }
 
-fn _ignore(_l: Hello, _ll: Hello) {
+fn _ignore(_l: Olleh, _ll: Olleh) {
 }
 
 #[infer_session_type]
@@ -111,7 +111,7 @@ fn example_external_choice(mut s: Session) {
     s.receive::<Olleh>();
     println!("Hello world");
     
-    match s.select::<Status>() {
+    match s.branch::<Status>() {
         Status::Healthy => {
             let mut i = 0;
             while i < 10 {
@@ -130,8 +130,8 @@ fn example_external_choice(mut s: Session) {
 
 #[test]
 fn it_works() {
-    session_type_example_external_choice();
-    rumpsteak_session_type_example_external_choice()
+    println!("{}", get_session_type_example_external_choice());
+    println!("{}", get_rumpsteak_session_type_example_external_choice().unwrap());
     // let result = add(2, 2);
     // assert_eq!(result, 4);
 }

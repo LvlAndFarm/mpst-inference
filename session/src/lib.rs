@@ -1,4 +1,4 @@
-pub mod action;
+pub mod ilt;
 pub mod session_type;
 
 pub struct Session;
@@ -21,8 +21,8 @@ impl Session {
         T::receive()
     }
 
-    pub fn select<T: Message>(&mut self) -> T {
-        println!("Receiving message");
+    pub fn branch<T: Message>(&mut self) -> T {
+        println!("Sending message");
         T::receive()
     }
 }
