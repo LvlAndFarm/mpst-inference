@@ -152,7 +152,7 @@ impl Display for MPSTLocalType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Participant {
     role: Option<String>
 }

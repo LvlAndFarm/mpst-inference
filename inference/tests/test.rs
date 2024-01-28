@@ -28,7 +28,7 @@ fn simple_merge_manual_types() {
     let lt2_role = Participant::new(Some(String::from("B")));
 
 
-    println!("{}", merge_locals((lt1_role, lt1), (lt2_role, lt2)).unwrap());
+    println!("{}", merge_binary((lt1_role, lt1), (lt2_role, lt2)).unwrap());
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn simple_merge_inferred() {
     let server_mpst_local = get_rumpsteak_session_type_server().unwrap();
 
 
-    println!("{}", merge_locals((client_role, client_mpst_local), (server_role, server_mpst_local)).unwrap());
+    println!("{}", merge_binary((client_role, client_mpst_local), (server_role, server_mpst_local)).unwrap());
 }
 
 
@@ -129,7 +129,7 @@ fn more_general_branch() {
     let lt2_role = Participant::new(Some(String::from("B")));
 
 
-    println!("{}", merge_locals((lt1_role, lt1), (lt2_role, lt2)).unwrap());
+    println!("{}", merge_binary((lt1_role, lt1), (lt2_role, lt2)).unwrap());
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn recursive_sum_manual() {
 
     let lt2_role = Participant::new(Some(String::from("S")));
 
-    println!("{}", merge_locals((lt1_role, lt1), (lt2_role, lt2)).unwrap());
+    println!("{}", merge_binary((lt1_role, lt1), (lt2_role, lt2)).unwrap());
 }
 
 #[test]
@@ -236,5 +236,155 @@ fn recursive_sum() {
     let server_mpst_local = get_rumpsteak_session_type_server().unwrap();
 
 
-    println!("{}", merge_locals((client_role, client_mpst_local), (server_role, server_mpst_local)).unwrap());
+    println!("{}", merge_binary((client_role, client_mpst_local), (server_role, server_mpst_local)).unwrap());
+}
+
+#[test]
+fn test_triple_session_type() {
+    struct Hello;
+    enum Choice {
+        Left,
+        Right
+    }
+    enum Choice2 {
+        CLeft,
+        CRight
+    }
+
+    impl Message for Hello {
+        fn receive() -> Self {
+            Hello
+        }
+    }
+
+    impl Message for Choice {
+        fn receive() -> Self {
+            Choice::Left
+        }
+    }
+
+    impl Message for Choice2 {
+        fn receive() -> Self {
+            Choice2::CLeft
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn A(mut s: Session) {
+        s.send(Hello);
+        if env!("PATH").contains("debug") {
+            s.send(Choice::Left);
+        } else {
+            s.send(Choice::Right);
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn B(mut s: Session) {
+        s.receive::<Hello>();
+        match s.branch::<Choice>() {
+            Choice::Left => {
+                s.send(Choice2::CLeft);
+            }
+            Choice::Right => {
+                s.send(Choice2::CRight);
+            }
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn C(mut s: Session) {
+        match s.branch::<Choice2>() {
+            Choice2::CLeft => {
+                println!("Left");
+            }
+            Choice2::CRight => {
+                println!("Right");
+            }
+        }
+    }
+
+    let a_role = Participant::new(Some(String::from("A")));
+    let b_role = Participant::new(Some(String::from("B")));
+    let c_role = Participant::new(Some(String::from("C")));
+
+    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
+    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
+    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
+
+    println!("A.MPSTLocalType: {}", a_mpst_local);
+    println!("B.MPSTLocalType: {}", b_mpst_local);
+    println!("C.MPSTLocalType: {}", c_mpst_local);
+
+    println!("{}", merge_locals(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)]).unwrap());
+}
+
+#[test]
+fn test_backtracking_triple() {
+    /**
+     * Expected GlobalType: Select<A, B, { Hello. Select<A, B, { Left. Select<B, C, { Left. end, }>, Right. Select<B, C, { Right. end, }>, }>, }>
+     * Expected LocalType A: Send<?, Hello, Select<?, {Left.End, Right.End, }>
+     * Expected LocalType B: Receive<?, Hello, Branch<?, {Left.Send<?, Left, End>, Right.Send<?, Right, End>, }>
+     * Expected LocalType C: Branch<?, {Left.End, Right.End, }
+     * 
+     * This is a test for backtracking. The initial duals are <A, B> and <A, C>, but <A, C> leads to a dead end, so we backtrack to <A, B>.
+     * The backtracking behaviour might not be triggered if <A, B> is explored first.
+     */
+    enum Choice {
+        Left,
+        Right
+    }
+
+    impl Message for Choice {
+        fn receive() -> Self {
+            Choice::Left
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn A(mut s: Session) {
+        if env!("PATH").contains("debug") {
+            s.send(Choice::Left);
+        } else {
+            s.send(Choice::Right);
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn B(mut s: Session) {
+        match s.branch::<Choice>() {
+            Choice::Left => {
+                s.send(Choice::Left);
+            }
+            Choice::Right => {
+                s.send(Choice::Right);
+            }
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn C(mut s: Session) {
+        match s.branch::<Choice>() {
+            Choice::Left => {
+                println!("Left");
+            }
+            Choice::Right => {
+                println!("Right");
+            }
+        }
+    }
+
+    let a_role = Participant::new(Some(String::from("A")));
+    let b_role = Participant::new(Some(String::from("B")));
+    let c_role = Participant::new(Some(String::from("C")));
+
+    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
+    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
+    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
+
+    println!("A.MPSTLocalType: {}", a_mpst_local);
+    println!("B.MPSTLocalType: {}", b_mpst_local);
+    println!("C.MPSTLocalType: {}", c_mpst_local);
+
+    println!("{}", merge_locals(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)]).unwrap());
 }

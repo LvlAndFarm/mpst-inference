@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
-use session::session_type::{MPSTLocalType, Participant};
+use session::{session_type::{MPSTLocalType, Participant}, Message};
 
 #[derive(Debug)]
 pub enum GlobalType {
@@ -34,7 +34,7 @@ impl Display for GlobalType {
     }
 }
 
-pub fn merge_locals(
+pub fn merge_binary(
     lt1: (Participant, MPSTLocalType),
     lt2: (Participant, MPSTLocalType),
 ) -> Result<GlobalType, String> {
@@ -72,7 +72,7 @@ pub fn merge_locals(
                 lt1_role.clone(),
                 lt2_role.clone(),
                 label1,
-                Box::new(merge_locals(
+                Box::new(merge_binary(
                     (lt1_role.clone(), *cont1),
                     (lt2_role.clone(), *cont2),
                 )?),
@@ -99,7 +99,7 @@ pub fn merge_locals(
                 lt2_role.clone(),
                 lt1_role.clone(),
                 label1,
-                Box::new(merge_locals(
+                Box::new(merge_binary(
                     (lt2_role.clone(), *cont1),
                     (lt1_role.clone(), *cont2),
                 )?),
@@ -120,7 +120,7 @@ pub fn merge_locals(
 
                 merged_opts.push((
                     label1.clone(),
-                    merge_locals(
+                    merge_binary(
                         (lt2_role.clone(), cont1.clone()),
                         (lt1_role.clone(), matched_rec_opt.clone()),
                     )?,
@@ -148,7 +148,7 @@ pub fn merge_locals(
 
                 merged_opts.push((
                     label1.clone(),
-                    merge_locals(
+                    merge_binary(
                         (lt1_role.clone(), cont1.clone()),
                         (lt2_role.clone(), matched_rec_opt.clone()),
                     )?,
@@ -162,13 +162,176 @@ pub fn merge_locals(
             ))
         },
         (MPSTLocalType::RecX(cont1), MPSTLocalType::RecX(cont2)) => {
-            Ok(GlobalType::RecX(Box::new(merge_locals(
+            Ok(GlobalType::RecX(Box::new(merge_binary(
                 (lt1_role.clone(), *cont1),
                 (lt2_role.clone(), *cont2),
             )?)))
         },
         (MPSTLocalType::X, MPSTLocalType::X) => Ok(GlobalType::X),
         (MPSTLocalType::End, MPSTLocalType::End) => Ok(GlobalType::End),
-        _ => panic!("Not implemented"),
+        _ => panic!("Incompatible types"),
     }
+}
+
+pub fn merge_locals(parties: Vec<(Participant, MPSTLocalType)>) -> Result<GlobalType, String> {
+    println!("Merging local types {:?}", parties);
+    if is_end_state(&parties) {
+        return Ok(GlobalType::End);
+    }
+
+    let mut duals = enumerate_duals(&parties);
+    duals.sort();
+    duals.dedup();
+    for (p1, p2) in duals {
+        match reduce_then_merge(p1.clone(), p2.clone(), &parties) {
+            Ok(gt) => return Ok(gt),
+            Err(err) => println!("Cannot merge {} and {}: {}, trying next dual", p1, p2, err),
+        }
+    }
+    Err(format!("Cannot merge local types {:?}", parties))
+}
+
+fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Vec<(Participant, MPSTLocalType)>) -> Result<GlobalType, String> {
+    let parties = generalise_unary_forms(parties);
+    println!("Reducing {} and {} from {:?}", p1, p2, parties);
+    let p1_mpst = parties.iter().find(|(p, _)| p == &p1).ok_or(String::from("Cannot find party 1 to reduce"))?.1.clone();
+    let p2_mpst = parties.iter().find(|(p, _)| p == &p2).ok_or(String::from("Cannot find party 2 to reduce"))?.1.clone();
+    match (p1_mpst, p2_mpst) {
+        (MPSTLocalType::Send(_, label, cont), MPSTLocalType::Receive(_, label2, cont2)) => {
+            if label != label2 {
+                return Err(format!("Mismatched send and receive: {} and {}", label, label2));
+            }
+            let new_parties = parties.iter().map(|(p, lt)| {
+                if p == &p1 {
+                    (p.clone(), *cont.clone())
+                } else if p == &p2 {
+                    (p.clone(), *cont2.clone())
+                } else {
+                    (p.clone(), lt.clone())
+                }
+            }).collect();
+
+            Ok(GlobalType::Send(p1, p2, label, Box::new(merge_locals(new_parties)?)))
+        }
+        (MPSTLocalType::Receive(_, label, cont), MPSTLocalType::Send(_, label2, cont2)) => {
+            if label != label2 {
+                return Err(format!("Mismatched send and receive: {} and {}", label, label2));
+            }
+            let new_parties = parties.iter().map(|(p, lt)| {
+                if p == &p1 {
+                    (p.clone(), *cont.clone())
+                } else if p == &p2 {
+                    (p.clone(), *cont2.clone())
+                } else {
+                    (p.clone(), lt.clone())
+                }
+            }).collect();
+
+            Ok(GlobalType::Send(p2, p1, label, Box::new(merge_locals(new_parties)?)))
+        }
+        (MPSTLocalType::Branch(_, branch_conts), MPSTLocalType::Select(_, sel_conts)) => {
+            let mut new_conts = Vec::new();
+            for (label, sel_cont) in sel_conts {
+                let (_, matched_branch_cont) = branch_conts.iter().find(|(label2, _)| label == *label2).ok_or(format!("No matching label for {}", label))?;
+                
+                let new_parties = parties.iter().map(|(p, lt)| {
+                    if p == &p1 {
+                        (p.clone(), matched_branch_cont.clone())
+                    } else if p == &p2 {
+                        (p.clone(), sel_cont.clone())
+                    } else {
+                        (p.clone(), lt.clone())
+                    }
+                }).collect();
+
+                match merge_locals(new_parties) {
+                    Ok(gt) => new_conts.push((label, gt)),
+                    Err(_) => return Err(format!("Cannot merge local types {:?}", parties)),
+                }
+            }
+            Ok(GlobalType::Select(p2, p1, new_conts))
+        }
+        (MPSTLocalType::Select(_, sel_conts), MPSTLocalType::Branch(_, branch_conts)) => {
+            let mut new_conts = Vec::new();
+            for (label, sel_cont) in sel_conts {
+                let (_, matched_branch_cont) = branch_conts.iter().find(|(label2, _)| label == *label2).ok_or(format!("No matching label for {}", label))?;
+                
+                let new_parties = parties.iter().map(|(p, lt)| {
+                    if p == &p1 {
+                        (p.clone(), sel_cont.clone())
+                    } else if p == &p2 {
+                        (p.clone(), matched_branch_cont.clone())
+                    } else {
+                        (p.clone(), lt.clone())
+                    }
+                }).collect();
+
+                match merge_locals(new_parties) {
+                    Ok(gt) => new_conts.push((label, gt)),
+                    Err(_) => return Err(format!("Cannot merge SELECT {:?}", parties)),
+                }
+            }
+            Ok(GlobalType::Select(p1, p2, new_conts))
+        }
+        _ => Err(format!("Cannot merge local types {:?}", parties))
+    }
+}
+
+fn enumerate_duals(parties: &Vec<(Participant, MPSTLocalType)>) -> Vec<(Participant, Participant)> {
+    let mut duals = Vec::new();
+    let mut receivers: HashMap<String, Participant> = HashMap::new();
+    let mut senders: HashMap<String, Participant> = HashMap::new();
+    for (p1, local_type) in parties {
+        match local_type {
+            MPSTLocalType::Send(p2, label, _) => {
+                senders.insert(label.clone(), p1.clone());
+
+                if receivers.contains_key(label) {
+                    duals.push((p1.clone(), receivers[label].clone()));
+                }
+            }
+            MPSTLocalType::Receive(p2, label, _) => {
+                receivers.insert(label.clone(), p1.clone());
+
+                if senders.contains_key(label) {
+                    duals.push((p1.clone(), senders[label].clone()));
+                }
+            }
+            MPSTLocalType::Branch(p2, conts) => {
+                for (label, _) in conts {
+                    receivers.insert(label.clone(), p1.clone());
+
+                    if senders.contains_key(label) {
+                        duals.push((p1.clone(), senders[label].clone()));
+                    }
+                }
+            }
+            MPSTLocalType::Select(p2, conts) => {
+                for (label, _) in conts {
+                    senders.insert(label.clone(), p1.clone());
+
+                    if receivers.contains_key(label) {
+                        duals.push((p1.clone(), receivers[label].clone()));
+                    }
+                }
+            }
+            MPSTLocalType::End => (),
+            _ => unimplemented!("Not implemented")
+        }
+    }
+    duals
+}
+
+fn is_end_state(parties: &[(Participant, MPSTLocalType)]) -> bool {
+    parties.iter().all(|(_, lt)| matches!(lt, MPSTLocalType::End))
+}
+
+fn generalise_unary_forms(parties: &[(Participant, MPSTLocalType)]) -> Vec<(Participant, MPSTLocalType)> {
+    parties.iter().map(|(p, lt)| {
+        match lt {
+            MPSTLocalType::Send(_, label, cont) => (p.clone(), MPSTLocalType::Select(p.clone(), vec![(label.clone(), *cont.clone())])),
+            MPSTLocalType::Receive(_, label, cont) => (p.clone(), MPSTLocalType::Branch(p.clone(), vec![(label.clone(), *cont.clone())])),
+            _ => (p.clone(), lt.clone()),
+        }
+    }).collect()
 }
