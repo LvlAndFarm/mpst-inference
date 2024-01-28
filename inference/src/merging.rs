@@ -42,70 +42,7 @@ pub fn merge_binary(
     let (lt1_role, lt1) = lt1;
     let (lt2_role, lt2) = lt2;
 
-    // Replace Send with singular Select and Receive with singular Branch
-    let lt1 = match lt1 {
-        MPSTLocalType::Send(p, label, cont) => MPSTLocalType::Select(p, vec![(label, *cont)]),
-        MPSTLocalType::Receive(p, label, cont) => MPSTLocalType::Branch(p, vec![(label, *cont)]),
-        _ => lt1,
-    };
-
-    let lt2 = match lt2 {
-        MPSTLocalType::Send(p, label, cont) => MPSTLocalType::Select(p, vec![(label, *cont)]),
-        MPSTLocalType::Receive(p, label, cont) => MPSTLocalType::Branch(p, vec![(label, *cont)]),
-        _ => lt2,
-    };
-
     match (lt1, lt2) {
-        (MPSTLocalType::Send(p1, label1, cont1), MPSTLocalType::Receive(p2, label2, cont2)) => {
-            if p1 != p2 {
-                return Err(format!("Incompatible participants: {} and {}", p1, p2));
-            }
-
-            if label1 != label2 {
-                return Err(format!(
-                    "Mismatched send and receive: {} and {}",
-                    label1, label2
-                ));
-            }
-
-            Ok(GlobalType::Send(
-                lt1_role.clone(),
-                lt2_role.clone(),
-                label1,
-                Box::new(merge_binary(
-                    (lt1_role.clone(), *cont1),
-                    (lt2_role.clone(), *cont2),
-                )?),
-            ))
-        }
-
-        (MPSTLocalType::Receive(p1, label1, cont1), MPSTLocalType::Send(p2, label2, cont2)) => {
-            if p1 != p2 {
-                return Err(format!("Incompatible participants: {} and {}", p1, p2));
-            }
-
-            if p1 != p2 {
-                return Err(format!("Incompatible participants: {} and {}", p1, p2));
-            }
-
-            if label1 != label2 {
-                return Err(format!(
-                    "Mismatched send and receive: {} and {}",
-                    label1, label2
-                ));
-            }
-
-            Ok(GlobalType::Send(
-                lt2_role.clone(),
-                lt1_role.clone(),
-                label1,
-                Box::new(merge_binary(
-                    (lt2_role.clone(), *cont1),
-                    (lt1_role.clone(), *cont2),
-                )?),
-            ))
-        }
-
         (MPSTLocalType::Branch(p1, rec_opts), MPSTLocalType::Select(p2, send_opts)) => {
             if p1 != p2 {
                 return Err(format!("Incompatible participants: {} and {}", p1, p2));
@@ -192,43 +129,10 @@ pub fn merge_locals(parties: Vec<(Participant, MPSTLocalType)>) -> Result<Global
 }
 
 fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Vec<(Participant, MPSTLocalType)>) -> Result<GlobalType, String> {
-    let parties = generalise_unary_forms(parties);
     println!("Reducing {} and {} from {:?}", p1, p2, parties);
     let p1_mpst = parties.iter().find(|(p, _)| p == &p1).ok_or(String::from("Cannot find party 1 to reduce"))?.1.clone();
     let p2_mpst = parties.iter().find(|(p, _)| p == &p2).ok_or(String::from("Cannot find party 2 to reduce"))?.1.clone();
     match (p1_mpst, p2_mpst) {
-        (MPSTLocalType::Send(_, label, cont), MPSTLocalType::Receive(_, label2, cont2)) => {
-            if label != label2 {
-                return Err(format!("Mismatched send and receive: {} and {}", label, label2));
-            }
-            let new_parties = parties.iter().map(|(p, lt)| {
-                if p == &p1 {
-                    (p.clone(), *cont.clone())
-                } else if p == &p2 {
-                    (p.clone(), *cont2.clone())
-                } else {
-                    (p.clone(), lt.clone())
-                }
-            }).collect();
-
-            Ok(GlobalType::Send(p1, p2, label, Box::new(merge_locals(new_parties)?)))
-        }
-        (MPSTLocalType::Receive(_, label, cont), MPSTLocalType::Send(_, label2, cont2)) => {
-            if label != label2 {
-                return Err(format!("Mismatched send and receive: {} and {}", label, label2));
-            }
-            let new_parties = parties.iter().map(|(p, lt)| {
-                if p == &p1 {
-                    (p.clone(), *cont.clone())
-                } else if p == &p2 {
-                    (p.clone(), *cont2.clone())
-                } else {
-                    (p.clone(), lt.clone())
-                }
-            }).collect();
-
-            Ok(GlobalType::Send(p2, p1, label, Box::new(merge_locals(new_parties)?)))
-        }
         (MPSTLocalType::Branch(_, branch_conts), MPSTLocalType::Select(_, sel_conts)) => {
             let mut new_conts = Vec::new();
             for (label, sel_cont) in sel_conts {
@@ -283,20 +187,6 @@ fn enumerate_duals(parties: &Vec<(Participant, MPSTLocalType)>) -> Vec<(Particip
     let mut senders: HashMap<String, Participant> = HashMap::new();
     for (p1, local_type) in parties {
         match local_type {
-            MPSTLocalType::Send(p2, label, _) => {
-                senders.insert(label.clone(), p1.clone());
-
-                if receivers.contains_key(label) {
-                    duals.push((p1.clone(), receivers[label].clone()));
-                }
-            }
-            MPSTLocalType::Receive(p2, label, _) => {
-                receivers.insert(label.clone(), p1.clone());
-
-                if senders.contains_key(label) {
-                    duals.push((p1.clone(), senders[label].clone()));
-                }
-            }
             MPSTLocalType::Branch(p2, conts) => {
                 for (label, _) in conts {
                     receivers.insert(label.clone(), p1.clone());
@@ -324,14 +214,4 @@ fn enumerate_duals(parties: &Vec<(Participant, MPSTLocalType)>) -> Vec<(Particip
 
 fn is_end_state(parties: &[(Participant, MPSTLocalType)]) -> bool {
     parties.iter().all(|(_, lt)| matches!(lt, MPSTLocalType::End))
-}
-
-fn generalise_unary_forms(parties: &[(Participant, MPSTLocalType)]) -> Vec<(Participant, MPSTLocalType)> {
-    parties.iter().map(|(p, lt)| {
-        match lt {
-            MPSTLocalType::Send(_, label, cont) => (p.clone(), MPSTLocalType::Select(p.clone(), vec![(label.clone(), *cont.clone())])),
-            MPSTLocalType::Receive(_, label, cont) => (p.clone(), MPSTLocalType::Branch(p.clone(), vec![(label.clone(), *cont.clone())])),
-            _ => (p.clone(), lt.clone()),
-        }
-    }).collect()
 }

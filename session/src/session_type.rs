@@ -1,10 +1,8 @@
-use std::fmt::Display;
+use std::{fmt::Display, vec};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MPSTLocalType {
-    Send(Participant, String, Box<MPSTLocalType>),
     Select(Participant, Vec<(String, MPSTLocalType)>),
-    Receive(Participant, String, Box<MPSTLocalType>),
     /* Branch is receive with external choice */
     Branch(Participant, Vec<(String, MPSTLocalType)>),
     RecX(Box<MPSTLocalType>),
@@ -13,25 +11,16 @@ pub enum MPSTLocalType {
 }
 
 impl MPSTLocalType {
+    pub fn receive(p: Participant, label: String, cont: MPSTLocalType) -> MPSTLocalType {
+        Self::Branch(p, vec![(label, cont)])
+    }
+
+    pub fn send(p: Participant, label: String, cont: MPSTLocalType) -> MPSTLocalType {
+        Self::Select(p, vec![(label, cont)])
+    }
+
     pub fn to_syn_ast(&self) -> syn::Expr {
         match self {
-            MPSTLocalType::Send(participant, label, ty) => {
-                println!("SEND Parse Start");
-                let ty = ty.to_syn_ast();
-                println!("SEND Parse End");
-                let participant: syn::Expr = match &participant.role {
-                    Some(role) => syn::parse_quote! { Some(String::from(#role)) },
-                    None => syn::parse_quote! { None }
-                };
-                println!("Sending parse");
-                syn::parse_quote! {
-                    ::session::session_type::MPSTLocalType::Send(
-                        ::session::session_type::Participant::new(#participant),
-                        String::from(#label),
-                        Box::new(#ty)
-                    )
-                }
-            },
             MPSTLocalType::Select(participant, choices) => {
                 println!("SEL Parse Start");
                 let participant: syn::Expr = match &participant.role {
@@ -52,23 +41,6 @@ impl MPSTLocalType {
                     ::session::session_type::MPSTLocalType::Select(
                         ::session::session_type::Participant::new(#participant),
                         vec![#(#syn_choices),*]
-                    )
-                }
-            },
-            MPSTLocalType::Receive(participant, label, ty) => {
-                println!("RECEIVE Parse Start");
-                let ty = ty.to_syn_ast();
-                println!("Parsed RECEIVE cont");
-                let participant: syn::Expr = match &participant.role {
-                    Some(role) => syn::parse_quote! { Some(String::from(#role)) },
-                    None => syn::parse_quote! { None }
-                };
-                println!("Parsed RECEIVE participant");
-                syn::parse_quote! {
-                    ::session::session_type::MPSTLocalType::Receive(
-                        ::session::session_type::Participant::new(#participant),
-                        String::from(#label),
-                        Box::new(#ty)
                     )
                 }
             },
@@ -122,18 +94,12 @@ impl MPSTLocalType {
 impl Display for MPSTLocalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MPSTLocalType::Send(participant, label, cont) => {
-                write!(f, "Send<{}, {}, {}>", participant, label, cont)?;
-            },
             MPSTLocalType::Select(participant, choices) => {
                 write!(f, "Select<{}, {{", participant)?;
                 for (label, cont) in choices {
                     write!(f, "{}.{}, ", label, cont)?;
                 }
                 write!(f, "}}")?;
-            },
-            MPSTLocalType::Receive(participant, label, cont) => {
-                write!(f, "Receive<{}, {}, {}>", participant, label, cont)?;
             },
             MPSTLocalType::Branch(participant, choices) => {
                 write!(f, "Branch<{}, {{", participant)?;

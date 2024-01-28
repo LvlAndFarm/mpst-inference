@@ -5,24 +5,24 @@ use inference::merging::*;
 fn simple_merge_manual_types() {
     let anon = Participant::anonymous();
 
-    let lt1 = MPSTLocalType::Send(
+    let lt1 = MPSTLocalType::send(
         anon.clone(),
         String::from("Hello"),
-        Box::new(MPSTLocalType::Branch(anon.clone(), vec![
-            (String::from("Left"), MPSTLocalType::Receive(anon.clone(), String::from("LeftEnd"), Box::new(MPSTLocalType::End))),
-            (String::from("Right"), MPSTLocalType::Send(anon.clone(), String::from("RightEnd"), Box::new(MPSTLocalType::End))),
-        ]))
+        MPSTLocalType::Branch(anon.clone(), vec![
+            (String::from("Left"), MPSTLocalType::receive(anon.clone(), String::from("LeftEnd"), MPSTLocalType::End)),
+            (String::from("Right"), MPSTLocalType::send(anon.clone(), String::from("RightEnd"), MPSTLocalType::End)),
+        ])
     );
 
     let lt1_role = Participant::new(Some(String::from("A")));
 
-    let lt2 = MPSTLocalType::Receive(
+    let lt2 = MPSTLocalType::receive(
         anon.clone(),
         String::from("Hello"),
-        Box::new(MPSTLocalType::Select(anon.clone(), vec![
-            (String::from("Left"), MPSTLocalType::Send(anon.clone(), String::from("LeftEnd"), Box::new(MPSTLocalType::End))),
-            (String::from("Right"), MPSTLocalType::Receive(anon.clone(), String::from("RightEnd"), Box::new(MPSTLocalType::End))),
-        ]))
+        MPSTLocalType::Select(anon.clone(), vec![
+            (String::from("Left"), MPSTLocalType::send(anon.clone(), String::from("LeftEnd"), MPSTLocalType::End)),
+            (String::from("Right"), MPSTLocalType::receive(anon.clone(), String::from("RightEnd"), MPSTLocalType::End)),
+        ])
     );
     
     let lt2_role = Participant::new(Some(String::from("B")));
@@ -105,24 +105,22 @@ fn simple_merge_inferred() {
 fn more_general_branch() {
     let anon = Participant::anonymous();
 
-    let lt1 = MPSTLocalType::Send(
+    let lt1 = MPSTLocalType::send(
         anon.clone(),
         String::from("Hello"),
-        Box::new(MPSTLocalType::Branch(anon.clone(), vec![
-            (String::from("Left"), MPSTLocalType::Receive(anon.clone(), String::from("LeftEnd"), Box::new(MPSTLocalType::End))),
-            (String::from("Right"), MPSTLocalType::Send(anon.clone(), String::from("RightEnd"), Box::new(MPSTLocalType::End))),
-        ]))
+        MPSTLocalType::Branch(anon.clone(), vec![
+            (String::from("Left"), MPSTLocalType::receive(anon.clone(), String::from("LeftEnd"), MPSTLocalType::End)),
+            (String::from("Right"), MPSTLocalType::send(anon.clone(), String::from("RightEnd"), MPSTLocalType::End)),
+        ])
     );
 
     let lt1_role = Participant::new(Some(String::from("A")));
 
-    let lt2 = MPSTLocalType::Receive(
+    let lt2 = MPSTLocalType::receive(
         anon.clone(),
         String::from("Hello"),
-        Box::new(
-            MPSTLocalType::Send(anon.clone(), String::from("Left"), 
-                Box::new(MPSTLocalType::Send(anon.clone(), String::from("LeftEnd"), Box::new(MPSTLocalType::End)))
-            )
+        MPSTLocalType::send(anon.clone(), String::from("Left"), 
+            MPSTLocalType::send(anon.clone(), String::from("LeftEnd"), MPSTLocalType::End)
         )
     );
     
@@ -163,7 +161,7 @@ fn recursive_sum_manual() {
         Box::new(
             MPSTLocalType::Select(anon.clone(), vec![
                 (String::from("Add"), MPSTLocalType::X),
-                (String::from("Req"), MPSTLocalType::Receive(anon.clone(), String::from("Ans"), Box::new(MPSTLocalType::End)))
+                (String::from("Req"), MPSTLocalType::Branch(anon.clone(), vec![(String::from("Ans"), MPSTLocalType::End)]))
             ])
         )
     );
@@ -174,7 +172,7 @@ fn recursive_sum_manual() {
         Box::new(
             MPSTLocalType::Branch(anon.clone(), vec![
                 (String::from("Add"), MPSTLocalType::X),
-                (String::from("Req"), MPSTLocalType::Send(anon.clone(), String::from("Ans"), Box::new(MPSTLocalType::End)))
+                (String::from("Req"), MPSTLocalType::Select(anon.clone(), vec![(String::from("Ans"), MPSTLocalType::End)]))
             ])
         )
     );
@@ -371,6 +369,60 @@ fn test_backtracking_triple() {
             Choice::Right => {
                 println!("Right");
             }
+        }
+    }
+
+    let a_role = Participant::new(Some(String::from("A")));
+    let b_role = Participant::new(Some(String::from("B")));
+    let c_role = Participant::new(Some(String::from("C")));
+
+    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
+    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
+    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
+
+    println!("A.MPSTLocalType: {}", a_mpst_local);
+    println!("B.MPSTLocalType: {}", b_mpst_local);
+    println!("C.MPSTLocalType: {}", c_mpst_local);
+
+    println!("{}", merge_locals(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)]).unwrap());
+}
+
+#[test]
+fn test_recursive_triple() {
+    struct Msg1;
+    struct Msg2;
+
+    impl Message for Msg1 {
+        fn receive() -> Self {
+            Msg1
+        }
+    }
+
+    impl Message for Msg2 {
+        fn receive() -> Self {
+            Msg2
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn A(mut s: Session) {
+        loop {
+            s.send(Msg1);
+            s.send(Msg2);
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn B(mut s: Session) {
+        loop {
+            s.receive::<Msg1>();
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn C(mut s: Session) {
+        loop {
+            s.receive::<Msg2>();
         }
     }
 

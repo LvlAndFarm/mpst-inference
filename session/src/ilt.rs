@@ -152,11 +152,11 @@ impl LocalType {
         match self {
             LocalType::Send(label, ty) => {
                 let ty = ty.to_session_type()?;
-                Ok(MPSTLocalType::Send(Participant::anonymous(), label.clone(), Box::new(ty)))
+                Ok(MPSTLocalType::Select(Participant::anonymous(), vec![(label.clone(), ty)]))
             },
             LocalType::Receive(label, ty) => {
                 let ty = ty.to_session_type()?;
-                Ok(MPSTLocalType::Receive(Participant::anonymous(), label.clone(), Box::new(ty)))
+                Ok(MPSTLocalType::Branch(Participant::anonymous(), vec![(label.clone(), ty)]))
             },
             LocalType::InternalChoice(choices) => {
                 let mut session_choices = Vec::new();
