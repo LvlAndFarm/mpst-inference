@@ -6,8 +6,8 @@ use session::{session_type::{MPSTLocalType, Participant}, Message};
 pub enum GlobalType {
     Send(Participant, Participant, String, Box<GlobalType>),
     Select(Participant, Participant, Vec<(String, GlobalType)>),
-    RecX(Box<GlobalType>),
-    X,
+    RecX(i32, Box<GlobalType>),
+    X(i32),
     End,
 }
 
@@ -25,10 +25,10 @@ impl Display for GlobalType {
                 }
                 write!(f, "}}>")?;
             }
-            GlobalType::RecX(cont) => {
-                write!(f, "Rec<{}>", cont)?;
+            GlobalType::RecX(id, cont) => {
+                write!(f, "Rec[{}]<{}>", id, cont)?;
             }
-            GlobalType::X => write!(f, "X")?,
+            GlobalType::X(id) => write!(f, "X[{}]", id)?,
             GlobalType::End => write!(f, "end")?,
         }
         Ok(())
@@ -92,7 +92,7 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
 
     let (gen_new_rec, parties) = unwrap_rec(parties);
     if gen_new_rec {
-        return Ok(GlobalType::RecX(Box::new(merge_locals(parties)?)));
+        return Ok(GlobalType::RecX(parties.global_depth, Box::new(merge_locals(parties)?)));
     }
 
     let mut duals = enumerate_duals(&parties);
@@ -137,7 +137,7 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
         }
     }
     if all_end_or_x {
-        return Ok(GlobalType::X);
+        return Ok(GlobalType::X(parties.recursive_context.global_depth));
     }
 
     Err(format!("Cannot merge local types {}", parties))
