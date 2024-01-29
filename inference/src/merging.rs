@@ -110,14 +110,18 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
     let (ends, non_ends): (Vec<_>, Vec<_>) = parties.parties.iter().partition(|(_, lt)| matches!(lt, MPSTLocalType::End));
 
     let mut all_end_or_x = true;
-    let mut will_recurse = false;
-    for (p, lt) in non_ends {
+    let mut will_recurse_to = None;
+    for (_, lt) in non_ends {
         match lt {
-            MPSTLocalType::X(depth) => {
-                will_recurse = true
+            MPSTLocalType::X(depth, mapped) => {
+                assert!(mapped);
+                match will_recurse_to {
+                    Some(fixed_depth) => assert!(Some(fixed_depth) == *depth),
+                    None => will_recurse_to = *depth,
+                }
             },
             _ => {
-                all_end_or_x = false;
+                all_end_or_x = true;
                 break
             },
         }
@@ -126,9 +130,12 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
     for (p, lt) in ends {
         match lt {
             MPSTLocalType::End => {
-                if will_recurse && parties.local_depth[p] != parties.recursive_context.local_depths[p] {
-                    all_end_or_x = false;
-                    break
+                match will_recurse_to {
+                    None => (),
+                    Some(depth) => if depth != parties.local_depth[p] {
+                        all_end_or_x = false;
+                        break
+                    }
                 }
             },
             _ => {
@@ -137,7 +144,10 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
         }
     }
     if all_end_or_x {
-        return Ok(GlobalType::X(parties.recursive_context.global_depth));
+        match will_recurse_to {
+            None => return Ok(GlobalType::End),
+            Some(depth) => return Ok(GlobalType::X(depth)),
+        }
     }
 
     Err(format!("Cannot merge local types {}", parties))
@@ -152,8 +162,8 @@ fn unwrap_rec(parties: Parties) -> (bool, Parties) {
     let mut new_parties = Vec::with_capacity(parties.parties.len());
     for (p, lt) in &parties.parties {
         match lt {
-            MPSTLocalType::RecX {cont, ..} => {
-                new_parties.push((p.clone(), cont.map_x_to_depth(parties.global_depth)));
+            MPSTLocalType::RecX {cont, id, ..} => {
+                new_parties.push((p.clone(), cont.map_local_x_to_global_rec(*id, parties.global_depth)));
                 gen_new_rec = true;
                 
             }
@@ -280,7 +290,7 @@ fn enumerate_duals(parties: &Parties) -> Vec<(Participant, Participant)> {
                 }
             }
             MPSTLocalType::End => (),
-            MPSTLocalType::X(_) => (),
+            MPSTLocalType::X(_, _) => (),
             MPSTLocalType::RecX {..} => (),
         }
     }

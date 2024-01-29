@@ -3,13 +3,13 @@ use syn::{punctuated::Punctuated, FnArg, token::Comma, spanned::Spanned};
 
 use session::ilt::{LocalType, PartialLocalType};
 
-pub fn infer_block_session_type(item: &syn::Block) -> Result<PartialLocalType, String> {
+pub fn infer_block_session_type(item: &syn::Block, rec_id: i32) -> Result<PartialLocalType, String> {
     let session_var = "s";
     let mut actions: Vec<PartialLocalType> = vec![];
     for stmt in &item.stmts {
         match stmt {
             syn::Stmt::Expr(expr, _tok) => {
-                if let Some(action) = gen_session_type(expr, session_var)? {
+                if let Some(action) = gen_session_type(expr, session_var, rec_id)? {
                     actions.push(action);
                 }
             }
@@ -20,24 +20,24 @@ pub fn infer_block_session_type(item: &syn::Block) -> Result<PartialLocalType, S
     sequence_session_types(actions)
 }
 
-pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<PartialLocalType>, String> {
+pub fn gen_session_type(expr: &syn::Expr, session_ident: &str, rec_id: i32) -> Result<Option<PartialLocalType>, String> {
     use PartialLocalType::*;
     // println!("{:?}", expr.span().source_text());
     match expr {
         syn::Expr::Call(call) => {
             // println!("Parsing call args for {:?}", call.func.span().source_text());
-            let arg_psts: Result<Vec<Option<PartialLocalType>>, String> = call.args.iter().map(|arg| gen_session_type(arg, session_ident)).collect();
+            let arg_psts: Result<Vec<Option<PartialLocalType>>, String> = call.args.iter().map(|arg| gen_session_type(arg, session_ident, rec_id)).collect();
             let arg_psts: Vec<PartialLocalType> = arg_psts?.iter().filter_map(|arg| arg.clone()).collect();
             let arg_combined_pst = sequence_session_types(arg_psts)?;
 
-            let call_pst = gen_session_type(&call.func, session_ident)?.unwrap_or(End);
+            let call_pst = gen_session_type(&call.func, session_ident, rec_id)?.unwrap_or(End);
 
             Ok(Some(call_pst.map_end_to(arg_combined_pst)))
         }
         syn::Expr::MethodCall(method_call) => {
             // Parse method call's argument local types
             // println!("Parsing method call args for {:?}", method_call.method.to_string());
-            let arg_psts: Result<Vec<_>, _> = method_call.args.iter().map(|arg| gen_session_type(arg, session_ident)).collect();
+            let arg_psts: Result<Vec<_>, _> = method_call.args.iter().map(|arg| gen_session_type(arg, session_ident, rec_id)).collect();
             let arg_psts: Vec<PartialLocalType> = arg_psts?.iter().filter_map(|arg| arg.clone()).collect();
             let arg_combined_pst = sequence_session_types(arg_psts)?;
 
@@ -95,32 +95,34 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
             Ok(Some(arg_combined_pst.map_end_to(session_call?.unwrap_or(PartialLocalType::End))))
         },
         syn::Expr::While(while_expr) => {
+            let new_rec_id = rec_id + 1;
             println!("Parsing while loop");
-            let cond_type = gen_session_type(&while_expr.cond, session_ident)?;
+            let cond_type = gen_session_type(&while_expr.cond, session_ident, new_rec_id)?;
             // println!("Cond type: {:?}", &cond_type);
-            let body_type = infer_block_session_type(&while_expr.body)?;
-            let body_type_with_x = body_type.map_end_to(X);
+            let body_type = infer_block_session_type(&while_expr.body, new_rec_id)?;
+            let body_type_with_x = body_type.map_end_to(X(new_rec_id));
             let block_type_with_choice = InternalChoice(vec![body_type_with_x, End]);
             let block_with_cond =  if let Some(cond_type) = cond_type {
                 cond_type.map_end_to(block_type_with_choice)
             } else {
                 block_type_with_choice
             };
-            Ok(Some(RecX(Box::new(block_with_cond))))
+            Ok(Some(RecX(new_rec_id, Box::new(block_with_cond))))
         },
         syn::Expr::ForLoop(for_expr) => {
+            let new_rec_id = rec_id + 1;
             println!("Parsing for loop");
-            let pat_type = gen_session_type(&for_expr.expr, session_ident)?.unwrap_or(End);
-            let body_type = infer_block_session_type(&for_expr.body)?;
-            let body_type_with_x = body_type.map_end_to(X);
-            let block_type_with_choice = RecX(Box::new(InternalChoice(vec![body_type_with_x, End])));
+            let pat_type = gen_session_type(&for_expr.expr, session_ident, new_rec_id)?.unwrap_or(End);
+            let body_type = infer_block_session_type(&for_expr.body, new_rec_id)?;
+            let body_type_with_x = body_type.map_end_to(X(new_rec_id));
+            let block_type_with_choice = RecX(new_rec_id, Box::new(InternalChoice(vec![body_type_with_x, End])));
             let block_with_pat = pat_type.map_end_to(block_type_with_choice);
             Ok(Some(block_with_pat))
         },
         syn::Expr::Match(match_expr) => {
             println!("Parsing match");
 
-            let expr_type = gen_session_type(&match_expr.expr, session_ident)?.unwrap_or(End);
+            let expr_type = gen_session_type(&match_expr.expr, session_ident, rec_id)?.unwrap_or(End);
 
             println!("Parsed match expr type {:?}", expr_type);
 
@@ -129,12 +131,12 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
                 match &arm.pat {
                     syn::Pat::TupleStruct(tuple_struct) => {
                         let label = tuple_struct.path.segments.last().unwrap().ident.to_string();
-                        let cont = gen_session_type(&arm.body, session_ident)?.unwrap_or(End);
+                        let cont = gen_session_type(&arm.body, session_ident, rec_id)?.unwrap_or(End);
                         session_choices.push(Receive(label, Box::new(cont)));
                     },
                     syn::Pat::Path(path) => {
                         let label = path.path.segments.last().unwrap().ident.to_string();
-                        let cont = gen_session_type(&arm.body, session_ident)?.unwrap_or(End);
+                        let cont = gen_session_type(&arm.body, session_ident, rec_id)?.unwrap_or(End);
                         session_choices.push(Receive(label, Box::new(cont)));
                     },
                     _ => {
@@ -147,10 +149,10 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
         },
         syn::Expr::If(if_expr) => {
             println!("Parsing if");
-            let cond_type = gen_session_type(&if_expr.cond, session_ident)?;
-            let then_type = infer_block_session_type(&if_expr.then_branch)?;
+            let cond_type = gen_session_type(&if_expr.cond, session_ident, rec_id)?;
+            let then_type = infer_block_session_type(&if_expr.then_branch, rec_id)?;
             let else_type = match &if_expr.else_branch {
-                Some((_, else_block)) => gen_session_type(else_block.as_ref(), session_ident)?.unwrap_or(End),
+                Some((_, else_block)) => gen_session_type(else_block.as_ref(), session_ident, rec_id)?.unwrap_or(End),
                 None => End
             };
             let if_type_with_choice = InternalChoice(vec![then_type, else_type]);
@@ -166,20 +168,21 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
             Ok(Some(Break))
         },
         syn::Expr::Loop(loop_expr) => {
+            let new_rec_id = rec_id + 1;
             println!("Parsing loop");
-            let body_type = infer_block_session_type(&loop_expr.body)?;
-            let body_type_with_x = body_type.map_end_to(X);
-            Ok(Some(RecX(Box::new(body_type_with_x))))
+            let body_type = infer_block_session_type(&loop_expr.body, new_rec_id)?;
+            let body_type_with_x = body_type.map_end_to(X(new_rec_id));
+            Ok(Some(RecX(new_rec_id, Box::new(body_type_with_x))))
         },
         syn::Expr::Let(let_expr) => {
             println!("Parsing let");
-            let rhs_type = gen_session_type(&let_expr.expr, session_ident)?;
+            let rhs_type = gen_session_type(&let_expr.expr, session_ident, rec_id)?;
             let rhs_type = rhs_type.unwrap_or(End);
             Ok(Some(rhs_type))
         },
         syn::Expr::Assign(assign_expr) => {
             println!("Parsing assign");
-            let rhs_type = gen_session_type(&assign_expr.right, session_ident)?;
+            let rhs_type = gen_session_type(&assign_expr.right, session_ident, rec_id)?;
             let rhs_type = rhs_type.unwrap_or(End);
             Ok(Some(rhs_type))
         },
@@ -187,7 +190,7 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
             println!("Parsing struct");
             let mut fields = vec![];
             for field in &struct_expr.fields {
-                let field_type = gen_session_type(&field.expr, session_ident)?;
+                let field_type = gen_session_type(&field.expr, session_ident, rec_id)?;
                 let field_type = field_type.unwrap_or(End);
                 fields.push(field_type)
             }
@@ -195,27 +198,27 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
         },
         syn::Expr::Binary(binary_expr) => {
             println!("Parsing binary");
-            let lhs_type = gen_session_type(&binary_expr.left, session_ident)?;
+            let lhs_type = gen_session_type(&binary_expr.left, session_ident, rec_id)?;
             let lhs_type = lhs_type.unwrap_or(End);
-            let rhs_type = gen_session_type(&binary_expr.right, session_ident)?;
+            let rhs_type = gen_session_type(&binary_expr.right, session_ident, rec_id)?;
             let rhs_type = rhs_type.unwrap_or(End);
             Ok(Some(sequence_session_types(vec![lhs_type, rhs_type])?))
         },
         syn::Expr::Unary(unary_expr) => {
             println!("Parsing unary");
-            let rhs_type = gen_session_type(&unary_expr.expr, session_ident)?;
+            let rhs_type = gen_session_type(&unary_expr.expr, session_ident, rec_id)?;
             let rhs_type = rhs_type.unwrap_or(End);
             Ok(Some(rhs_type))
         },
         syn::Expr::Range(range_expr) => {
             println!("Parsing range");
             let lhs_type = match &range_expr.start {
-                Some(start) => gen_session_type(start, session_ident)?,
+                Some(start) => gen_session_type(start, session_ident, rec_id)?,
                 None => None
             };
             let lhs_type = lhs_type.unwrap_or(End);
             let rhs_type = match &range_expr.end {
-                Some(start) => gen_session_type(start, session_ident)?,
+                Some(start) => gen_session_type(start, session_ident, rec_id)?,
                 None => None
             };
             let rhs_type = rhs_type.unwrap_or(End);
@@ -225,15 +228,15 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str) -> Result<Option<
         syn::Expr::Path(_) => Ok(None),
         syn::Expr::Block(block) => {
             println!("Parsing block");
-            Ok(Some(infer_block_session_type(&block.block)?))
+            Ok(Some(infer_block_session_type(&block.block, rec_id)?))
         },
         syn::Expr::Group(group) => {
             println!("Parsing group");
-            gen_session_type(&group.expr, session_ident)
+            gen_session_type(&group.expr, session_ident, rec_id)
         },
         syn::Expr::Paren(paren) => {
             println!("Parsing paren");
-            gen_session_type(&paren.expr, session_ident)
+            gen_session_type(&paren.expr, session_ident, rec_id)
         },
         _ => Err(format!("Unsupported Rust construct: {}, of type {:?}", 
                 expr.span().source_text().unwrap_or(String::from("ERROR printing expr")),
@@ -276,8 +279,8 @@ fn sequence_session_types(mut actions: Vec<PartialLocalType>) -> Result<PartialL
             PartialLocalType::Receive(label, cont) => {
                 session_type = PartialLocalType::Receive(label, Box::new(cont.map_end_to(session_type.clone().into())))
             }
-            PartialLocalType::RecX(cont) => {
-                session_type = PartialLocalType::RecX(Box::new(cont.map_break_to(PartialLocalType::End).map_end_to(session_type.clone().into())))
+            PartialLocalType::RecX(id, cont) => {
+                session_type = PartialLocalType::RecX(id, Box::new(cont.map_break_to(PartialLocalType::End).map_end_to(session_type.clone().into())))
             },
             PartialLocalType::InternalChoice(choices) => {
                 let mut new_choices = vec![];
@@ -294,9 +297,9 @@ fn sequence_session_types(mut actions: Vec<PartialLocalType>) -> Result<PartialL
                 session_type = PartialLocalType::ExternalChoice(new_choices);
             },
             PartialLocalType::End => (),
-            PartialLocalType::X => {
+            PartialLocalType::X(id) => {
                 println!("Warning: X-recursion overriding rest of session type sequence");
-                session_type = PartialLocalType::X;
+                session_type = PartialLocalType::X(id);
             },
             PartialLocalType::Break => {
                 println!("Warning: Break overriding rest of session type sequence");

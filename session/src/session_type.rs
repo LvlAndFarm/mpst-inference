@@ -13,7 +13,8 @@ pub enum MPSTLocalType {
         min_depth: Option<i32>,
         max_depth: Option<i32>,
     },
-    X(Option<i32>),
+    // The bool is for whether the X has been "assigned" to a global recursive id. If it has, then we don't map it again.
+    X(Option<i32>, bool),
     End
 }
 
@@ -41,31 +42,49 @@ impl MPSTLocalType {
         }
     }
 
-    pub fn x() -> Self {
-        Self::X(None)
+    pub fn recX_with_id(cont: Box<MPSTLocalType>, id: i32) -> Self {
+        Self::RecX {
+            cont,
+            id,
+            min_depth: None,
+            max_depth: None,
+        }
     }
 
-    pub fn map_x_to_depth(&self, depth: i32) -> Self {
+    pub fn x() -> Self {
+        Self::X(None, false)
+    }
+
+    pub fn x_with_id(id: i32) -> Self {
+        Self::X(Some(id), false)
+    }
+
+    pub fn map_local_x_to_global_rec(&self, local_id: i32, global_id: i32) -> Self {
         match self {
-            MPSTLocalType::X(_) => {
-                MPSTLocalType::X(Some(depth))
+            MPSTLocalType::X(Some(id), false) if *id == local_id => {
+                MPSTLocalType::X(Some(global_id), true)
             },
+            MPSTLocalType::X(None, false) => {
+                println!("WARNING: X should have been assigned a local id, assuming first recursive declaration");
+                MPSTLocalType::X(Some(global_id), true)
+            },
+            MPSTLocalType::X(_, _) => self.clone(),
             MPSTLocalType::Select(p, choices) => {
                 let mut new_choices: Vec<(String, MPSTLocalType)> = Vec::new();
                 for (label, cont) in choices {
-                    new_choices.push((label.clone(), cont.map_x_to_depth(depth)));
+                    new_choices.push((label.clone(), cont.map_local_x_to_global_rec(local_id, global_id)));
                 }
                 MPSTLocalType::Select(p.clone(), new_choices)
             },
             MPSTLocalType::Branch(p, choices) => {
                 let mut new_choices: Vec<(String, MPSTLocalType)> = Vec::new();
                 for (label, cont) in choices {
-                    new_choices.push((label.clone(), cont.map_x_to_depth(depth)));
+                    new_choices.push((label.clone(), cont.map_local_x_to_global_rec(local_id, global_id)));
                 }
                 MPSTLocalType::Branch(p.clone(), new_choices)
             },
-            MPSTLocalType::RecX {..} => {
-                self.clone()
+            MPSTLocalType::RecX {cont, id, min_depth, max_depth} => {
+                MPSTLocalType::RecX { cont: Box::new(cont.map_local_x_to_global_rec(local_id, global_id)), id: *id, min_depth: *min_depth, max_depth: *max_depth }
             },
             MPSTLocalType::End => {
                 MPSTLocalType::End
@@ -131,14 +150,14 @@ impl MPSTLocalType {
                     ::session::session_type::MPSTLocalType::RecX {cont: Box::new(#ty), id: #id, min_depth: #min_depth, max_depth: #max_depth}
                 }
             },
-            MPSTLocalType::X(depth) => {
+            MPSTLocalType::X(depth, mapped) => {
                 println!("X Parse Start");
                 let depth: syn::Expr = match depth {
                     Some(depth) => syn::parse_quote! { Some(#depth) },
                     None => syn::parse_quote! { None }
                 };
                 syn::parse_quote! {
-                    ::session::session_type::MPSTLocalType::X(#depth)
+                    ::session::session_type::MPSTLocalType::X(#depth, #mapped)
                 }
             },
             MPSTLocalType::End => {
@@ -169,9 +188,9 @@ impl Display for MPSTLocalType {
                 write!(f, "}}")?;
             },
             MPSTLocalType::RecX{cont, id, min_depth, max_depth} => {
-                write!(f, "Rec<{}, {:?}>", cont, id)?;
+                write!(f, "Rec[{}]<{}>", id, cont)?;
             },
-            MPSTLocalType::X(depth) => write!(f, "X({:?})", depth)?,
+            MPSTLocalType::X(depth, _mapped) => write!(f, "X({:?}, {})", depth, _mapped)?,
             MPSTLocalType::End => write!(f, "End")?
         }
         Ok(())

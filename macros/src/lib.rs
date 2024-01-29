@@ -13,7 +13,7 @@ pub fn infer_session_type(_attr: TokenStream, item: TokenStream) -> TokenStream 
     let item = syn::parse_macro_input!(item as syn::ItemFn);
     let fn_ident = item.sig.ident.to_string();
     println!("Processing {}", fn_ident);
-    let local_type = match parse::infer_block_session_type(&item.block).as_ref().map(PartialLocalType::to_local_type) {
+    let local_type = match parse::infer_block_session_type(&item.block, 0).as_ref().map(PartialLocalType::to_local_type) {
         Ok(Ok(local_type)) => local_type,
         Ok(Err(err)) => panic!("Error: {}", err),
         Err(err) => panic!("Error: {}", err)

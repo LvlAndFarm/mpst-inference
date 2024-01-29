@@ -8,8 +8,8 @@ pub enum LocalType {
     Receive(String, Box<LocalType>),
     InternalChoice(Vec<LocalType>),
     ExternalChoice(Vec<LocalType>),
-    RecX(Box<LocalType>),
-    X,
+    RecX(i32, Box<LocalType>),
+    X(i32),
     End
 }
 
@@ -19,8 +19,8 @@ pub enum PartialLocalType {
     Receive(String, Box<PartialLocalType>),
     InternalChoice(Vec<PartialLocalType>),
     ExternalChoice(Vec<PartialLocalType>),
-    RecX(Box<PartialLocalType>),
-    X,
+    RecX(i32, Box<PartialLocalType>),
+    X(i32),
     Break,
     End
 }
@@ -33,7 +33,7 @@ impl PartialLocalType {
             Break => new_break,
             Send(label, cont) => Send(label.clone(), Box::new(cont.map_break_to(new_break))),
             Receive(label, cont) => Receive(label.clone(), Box::new(cont.map_break_to(new_break))),
-            RecX(cont) => RecX(Box::new(cont.map_break_to(new_break))),
+            RecX(id, cont) => RecX(*id, Box::new(cont.map_break_to(new_break))),
             InternalChoice(choices) => {
                 let mut new_choices = vec![];
                 for choice in choices {
@@ -48,7 +48,7 @@ impl PartialLocalType {
                 }
                 ExternalChoice(new_choices)
             },
-            X => X,
+            X(id) => X(*id),
             End => End
         }
     }
@@ -60,7 +60,7 @@ impl PartialLocalType {
             Break => Break,
             Send(label, cont) => Send(label.clone(), Box::new(cont.map_end_to(new_end))),
             Receive(label, cont) => Receive(label.clone(), Box::new(cont.map_end_to(new_end))),
-            RecX(cont) => RecX(Box::new(cont.map_end_to(new_end))),
+            RecX(id, cont) => RecX(*id, Box::new(cont.map_end_to(new_end))),
             InternalChoice(choices) => {
                 let mut new_choices = vec![];
                 for choice in choices {
@@ -75,7 +75,7 @@ impl PartialLocalType {
                 }
                 ExternalChoice(new_choices)
             },
-            X => X,
+            X(id) => X(*id),
             End => new_end
         }
     }
@@ -86,7 +86,7 @@ impl PartialLocalType {
         match ty {
             LocalType::Send(label, cont) => Send(label, Box::new(PartialLocalType::of_local_type(*cont))),
             LocalType::Receive(label, cont) => Receive(label, Box::new(PartialLocalType::of_local_type(*cont))),
-            LocalType::RecX(cont) => RecX(Box::new(PartialLocalType::of_local_type(*cont))),
+            LocalType::RecX(id, cont) => RecX(id, Box::new(PartialLocalType::of_local_type(*cont))),
             LocalType::InternalChoice(choices) => {
                 let mut new_choices = vec![];
                 for choice in choices {
@@ -101,7 +101,7 @@ impl PartialLocalType {
                 }
                 ExternalChoice(new_choices)
             },
-            LocalType::X => X,
+            LocalType::X(id) => X(id),
             LocalType::End => End
         }
     }
@@ -130,11 +130,11 @@ impl PartialLocalType {
                 }
                 Ok(LocalType::ExternalChoice(local_choices))
             },
-            PartialLocalType::RecX(ty) => {
+            PartialLocalType::RecX(id, ty) => {
                 let ty = ty.to_local_type()?;
-                Ok(LocalType::RecX(Box::new(ty)))
+                Ok(LocalType::RecX(*id, Box::new(ty)))
             },
-            PartialLocalType::X => Ok(LocalType::X),
+            PartialLocalType::X(id) => Ok(LocalType::X(*id)),
             PartialLocalType::Break => Err(String::from("Break is not a valid local type. Please remove before converting to local type")),
             PartialLocalType::End => Ok(LocalType::End)
         }
@@ -199,11 +199,11 @@ impl LocalType {
                 }
                 Ok(MPSTLocalType::Branch(Participant::anonymous(), session_choices))
             },
-            LocalType::RecX(ty) => {
+            LocalType::RecX(id, ty) => {
                 let ty = ty.to_session_type()?;
-                Ok(MPSTLocalType::recX(Box::new(ty)))
+                Ok(MPSTLocalType::recX_with_id(Box::new(ty), *id))
             },
-            LocalType::X => Ok(MPSTLocalType::x()),
+            LocalType::X(id) => Ok(MPSTLocalType::x_with_id(*id)),
             LocalType::End => Ok(MPSTLocalType::End)
         }
     }
@@ -240,14 +240,14 @@ impl LocalType {
                     ::session::ilt::LocalType::ExternalChoice(vec![#(#syn_choices),*])
                 }
             },
-            LocalType::RecX(ty) => {
+            LocalType::RecX(id, ty) => {
                 let ty = ty.to_syn_ast();
                 syn::parse_quote! {
-                    ::session::ilt::LocalType::RecX(Box::new(#ty))
+                    ::session::ilt::LocalType::RecX(#id, Box::new(#ty))
                 }
             },
-            LocalType::X => syn::parse_quote! {
-                ::session::ilt::LocalType::X
+            LocalType::X(id) => syn::parse_quote! {
+                ::session::ilt::LocalType::X(#id)
             },
             LocalType::End => syn::parse_quote! {
                 ::session::ilt::LocalType::End
@@ -261,8 +261,8 @@ impl Display for LocalType {
         match self {
             LocalType::Send(label, ty) => write!(f, "Send(?, {}, {})", label, ty),
             LocalType::Receive(label, ty) => write!(f, "Receive(?, {}, {})", label, ty),
-            LocalType::RecX(ty) => write!(f, "μX.{}", ty),
-            LocalType::X => write!(f, "X"),
+            LocalType::RecX(id, ty) => write!(f, "μX[{}].{}", id, ty),
+            LocalType::X(id) => write!(f, "X[{}]", id),
             LocalType::End => write!(f, "end"),
             LocalType::InternalChoice(choices) => {
                 let mut result = String::from("InternalChoice(");
