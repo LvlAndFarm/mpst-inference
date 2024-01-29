@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::{BTreeMap, BTreeSet, HashMap, HashSet}, fmt::Display, iter::Map};
 
 use session::{session_type::{MPSTLocalType, Participant}, Message};
 
@@ -10,6 +10,7 @@ pub enum GlobalType {
     X,
     End,
 }
+
 
 impl Display for GlobalType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,86 +35,55 @@ impl Display for GlobalType {
     }
 }
 
-pub fn merge_binary(
-    lt1: (Participant, MPSTLocalType),
-    lt2: (Participant, MPSTLocalType),
-) -> Result<GlobalType, String> {
-    println!("Merging ({}, {}) and ({}, {})", lt1.0, lt1.1, lt2.0, lt2.1);
-    let (lt1_role, lt1) = lt1;
-    let (lt2_role, lt2) = lt2;
+#[derive(Clone)]
+pub struct Parties {
+    pub parties: BTreeMap<Participant, MPSTLocalType>,
+    pub global_depth: i32,
+    pub local_depth: BTreeMap<Participant, i32>,
+    pub recursive_context: BTreeMap<Participant, RecursiveContext>,
+}
 
-    match (lt1, lt2) {
-        (MPSTLocalType::Branch(p1, rec_opts), MPSTLocalType::Select(p2, send_opts)) => {
-            if p1 != p2 {
-                return Err(format!("Incompatible participants: {} and {}", p1, p2));
-            }
+#[derive(Clone)]
+pub struct RecursiveContext {
+    pub local_depth: i32,
+    pub global_depth: i32
+}
 
-            let mut merged_opts = Vec::new();
-            for (label1, cont1) in &send_opts {
-                let (_, matched_rec_opt) = rec_opts
-                    .iter()
-                    .find(|(label2, _)| label1 == label2)
-                    .ok_or(format!("No matching label for {}", label1))?;
+impl Parties {
+    pub fn new(parties: Vec<(Participant, MPSTLocalType)>) -> Self {
+        let local_depth = BTreeMap::from_iter(parties.iter().map(|(p,_)| (p.clone(), 0)));
+        Parties {
+            parties: parties.into_iter().collect(),
+            global_depth: 0,
+            local_depth,
+            recursive_context: BTreeMap::new(),
+        }
+    }
 
-                merged_opts.push((
-                    label1.clone(),
-                    merge_binary(
-                        (lt2_role.clone(), cont1.clone()),
-                        (lt1_role.clone(), matched_rec_opt.clone()),
-                    )?,
-                ));
-            }
-
-            Ok(GlobalType::Select(
-                lt2_role.clone(),
-                lt1_role.clone(),
-                merged_opts,
-            ))
-        },
-
-        (MPSTLocalType::Select(p2, send_opts), MPSTLocalType::Branch(p1, rec_opts)) => {
-            if p1 != p2 {
-                return Err(format!("Incompatible participants: {} and {}", p1, p2));
-            }
-
-            let mut merged_opts = Vec::new();
-            for (label1, cont1) in &send_opts {
-                let (_, matched_rec_opt) = rec_opts
-                    .iter()
-                    .find(|(label2, _)| label1 == label2)
-                    .ok_or(format!("No matching label for {}", label1))?;
-
-                merged_opts.push((
-                    label1.clone(),
-                    merge_binary(
-                        (lt1_role.clone(), cont1.clone()),
-                        (lt2_role.clone(), matched_rec_opt.clone()),
-                    )?,
-                ));
-            }
-
-            Ok(GlobalType::Select(
-                lt1_role.clone(),
-                lt2_role.clone(),
-                merged_opts,
-            ))
-        },
-        (MPSTLocalType::RecX(cont1), MPSTLocalType::RecX(cont2)) => {
-            Ok(GlobalType::RecX(Box::new(merge_binary(
-                (lt1_role.clone(), *cont1),
-                (lt2_role.clone(), *cont2),
-            )?)))
-        },
-        (MPSTLocalType::X, MPSTLocalType::X) => Ok(GlobalType::X),
-        (MPSTLocalType::End, MPSTLocalType::End) => Ok(GlobalType::End),
-        _ => panic!("Incompatible types"),
+    pub fn is_end_state(&self) -> bool {
+        self.parties.iter().all(|(_, lt)| matches!(lt, MPSTLocalType::End))
     }
 }
 
-pub fn merge_locals(parties: Vec<(Participant, MPSTLocalType)>) -> Result<GlobalType, String> {
-    println!("Merging local types {:?}", parties);
-    if is_end_state(&parties) {
+impl Display for Parties {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Parties {{ ")?;
+        for (p, lt) in &self.parties {
+            write!(f, "{}: {}, ", p, lt)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
+    println!("Merging local types {}", parties);
+    if parties.is_end_state() {
         return Ok(GlobalType::End);
+    }
+
+    let (gen_new_rec, parties) = unwrap_rec(parties);
+    if gen_new_rec {
+        return Ok(GlobalType::RecX(Box::new(merge_locals(parties)?)));
     }
 
     let mut duals = enumerate_duals(&parties);
@@ -125,20 +95,69 @@ pub fn merge_locals(parties: Vec<(Participant, MPSTLocalType)>) -> Result<Global
             Err(err) => println!("Cannot merge {} and {}: {}, trying next dual", p1, p2, err),
         }
     }
-    Err(format!("Cannot merge local types {:?}", parties))
+
+    // The other reduction case is if all parties are End or X(_), in which case we can just return X
+    let mut all_end_or_x = true;
+    let mut rec_depth = None;
+    for (_, lt) in &parties.parties {
+        match lt {
+            MPSTLocalType::End => (),
+            MPSTLocalType::X(depth) => {
+                if rec_depth.is_none() {
+                    rec_depth = Some(depth);
+                } else if rec_depth != Some(depth) {
+                    return Err(format!("Cannot merge local types {}", parties));
+                }
+            
+            },
+            _ => all_end_or_x = false,
+        }
+    }
+    if all_end_or_x {
+        return Ok(GlobalType::X);
+    }
+
+    Err(format!("Cannot merge local types {}", parties))
 }
 
-fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Vec<(Participant, MPSTLocalType)>) -> Result<GlobalType, String> {
-    println!("Reducing {} and {} from {:?}", p1, p2, parties);
-    let p1_mpst = parties.iter().find(|(p, _)| p == &p1).ok_or(String::from("Cannot find party 1 to reduce"))?.1.clone();
-    let p2_mpst = parties.iter().find(|(p, _)| p == &p2).ok_or(String::from("Cannot find party 2 to reduce"))?.1.clone();
+fn unwrap_rec(parties: Parties) -> (bool, Parties) {
+    // Iterate over all parties, and replace any RecX closures with their continuation.
+    // If for any party, the local type is not RecX or End during the iteration, then we simply return a Result error
+    // At the end of the iteration, we collect the results into a new Vec, and if we match an error, we return the original parties input.
+
+    let mut gen_new_rec = false;
+    let mut new_parties = Vec::with_capacity(parties.parties.len());
+    for (p, lt) in &parties.parties {
+        match lt {
+            MPSTLocalType::RecX {cont, ..} => {
+                new_parties.push((p.clone(), cont.map_x_to_depth(parties.global_depth)));
+                gen_new_rec = true;
+            }
+            MPSTLocalType::End => {
+                new_parties.push((p.clone(), MPSTLocalType::End));
+            }
+            _ => return (false, parties),
+        }
+    }
+    (gen_new_rec, Parties {
+        parties: new_parties.into_iter().collect(),
+        global_depth: parties.global_depth,
+        local_depth: parties.local_depth,
+        recursive_context: parties.recursive_context,
+    })
+}
+
+fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Parties) -> Result<GlobalType, String> {
+    println!("Reducing {} and {} from {}", p1, p2, parties);
+    let p1_mpst = parties.parties.iter().find(|(p, _)| *p == &p1).ok_or(String::from("Cannot find party 1 to reduce"))?.1.clone();
+    let p2_mpst = parties.parties.iter().find(|(p, _)| *p == &p2).ok_or(String::from("Cannot find party 2 to reduce"))?.1.clone();
     match (p1_mpst, p2_mpst) {
         (MPSTLocalType::Branch(_, branch_conts), MPSTLocalType::Select(_, sel_conts)) => {
             let mut new_conts = Vec::new();
             for (label, sel_cont) in sel_conts {
                 let (_, matched_branch_cont) = branch_conts.iter().find(|(label2, _)| label == *label2).ok_or(format!("No matching label for {}", label))?;
                 
-                let new_parties = parties.iter().map(|(p, lt)| {
+                let new_parties = parties.parties.iter().map(|(p, lt)| {
                     if p == &p1 {
                         (p.clone(), matched_branch_cont.clone())
                     } else if p == &p2 {
@@ -147,10 +166,16 @@ fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Vec<(Participan
                         (p.clone(), lt.clone())
                     }
                 }).collect();
+                let new_parties = Parties {
+                    parties: new_parties,
+                    global_depth: parties.global_depth,
+                    local_depth: parties.local_depth.clone(),
+                    recursive_context: parties.recursive_context.clone(),
+                };
 
                 match merge_locals(new_parties) {
                     Ok(gt) => new_conts.push((label, gt)),
-                    Err(_) => return Err(format!("Cannot merge local types {:?}", parties)),
+                    Err(_) => return Err(format!("Cannot merge local types {}", parties)),
                 }
             }
             Ok(GlobalType::Select(p2, p1, new_conts))
@@ -160,7 +185,7 @@ fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Vec<(Participan
             for (label, sel_cont) in sel_conts {
                 let (_, matched_branch_cont) = branch_conts.iter().find(|(label2, _)| label == *label2).ok_or(format!("No matching label for {}", label))?;
                 
-                let new_parties = parties.iter().map(|(p, lt)| {
+                let new_parties = parties.parties.iter().map(|(p, lt)| {
                     if p == &p1 {
                         (p.clone(), sel_cont.clone())
                     } else if p == &p2 {
@@ -169,23 +194,29 @@ fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Vec<(Participan
                         (p.clone(), lt.clone())
                     }
                 }).collect();
+                let new_parties = Parties {
+                    parties: new_parties,
+                    global_depth: parties.global_depth,
+                    local_depth: parties.local_depth.clone(),
+                    recursive_context: parties.recursive_context.clone()
+                };
 
                 match merge_locals(new_parties) {
                     Ok(gt) => new_conts.push((label, gt)),
-                    Err(_) => return Err(format!("Cannot merge SELECT {:?}", parties)),
+                    Err(_) => return Err(format!("Cannot merge local types {}", parties)),
                 }
             }
             Ok(GlobalType::Select(p1, p2, new_conts))
         }
-        _ => Err(format!("Cannot merge local types {:?}", parties))
+        _ => Err(format!("Cannot merge local types {}", parties))
     }
 }
 
-fn enumerate_duals(parties: &Vec<(Participant, MPSTLocalType)>) -> Vec<(Participant, Participant)> {
+fn enumerate_duals(parties: &Parties) -> Vec<(Participant, Participant)> {
     let mut duals = Vec::new();
     let mut receivers: HashMap<String, Participant> = HashMap::new();
     let mut senders: HashMap<String, Participant> = HashMap::new();
-    for (p1, local_type) in parties {
+    for (p1, local_type) in &parties.parties {
         match local_type {
             MPSTLocalType::Branch(p2, conts) => {
                 for (label, _) in conts {
@@ -206,12 +237,9 @@ fn enumerate_duals(parties: &Vec<(Participant, MPSTLocalType)>) -> Vec<(Particip
                 }
             }
             MPSTLocalType::End => (),
+            MPSTLocalType::X(_) => (),
             _ => unimplemented!("Not implemented")
         }
     }
     duals
-}
-
-fn is_end_state(parties: &[(Participant, MPSTLocalType)]) -> bool {
-    parties.iter().all(|(_, lt)| matches!(lt, MPSTLocalType::End))
 }

@@ -28,7 +28,7 @@ fn simple_merge_manual_types() {
     let lt2_role = Participant::new(Some(String::from("B")));
 
 
-    println!("{}", merge_binary((lt1_role, lt1), (lt2_role, lt2)).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(lt1_role, lt1), (lt2_role, lt2)])).unwrap());
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn simple_merge_inferred() {
     let server_mpst_local = get_rumpsteak_session_type_server().unwrap();
 
 
-    println!("{}", merge_binary((client_role, client_mpst_local), (server_role, server_mpst_local)).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(client_role, client_mpst_local), (server_role, server_mpst_local)])).unwrap());
 }
 
 
@@ -127,7 +127,7 @@ fn more_general_branch() {
     let lt2_role = Participant::new(Some(String::from("B")));
 
 
-    println!("{}", merge_binary((lt1_role, lt1), (lt2_role, lt2)).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(lt1_role, lt1), (lt2_role, lt2)])).unwrap());
 }
 
 #[test]
@@ -157,10 +157,10 @@ fn recursive_sum_manual() {
 
     let anon = Participant::anonymous();
 
-    let lt1 = MPSTLocalType::RecX(
+    let lt1 = MPSTLocalType::recX(
         Box::new(
             MPSTLocalType::Select(anon.clone(), vec![
-                (String::from("Add"), MPSTLocalType::X),
+                (String::from("Add"), MPSTLocalType::x()),
                 (String::from("Req"), MPSTLocalType::Branch(anon.clone(), vec![(String::from("Ans"), MPSTLocalType::End)]))
             ])
         )
@@ -168,10 +168,10 @@ fn recursive_sum_manual() {
 
     let lt1_role = Participant::new(Some(String::from("C")));
 
-    let lt2 = MPSTLocalType::RecX(
+    let lt2 = MPSTLocalType::recX(
         Box::new(
             MPSTLocalType::Branch(anon.clone(), vec![
-                (String::from("Add"), MPSTLocalType::X),
+                (String::from("Add"), MPSTLocalType::x()),
                 (String::from("Req"), MPSTLocalType::Select(anon.clone(), vec![(String::from("Ans"), MPSTLocalType::End)]))
             ])
         )
@@ -179,7 +179,7 @@ fn recursive_sum_manual() {
 
     let lt2_role = Participant::new(Some(String::from("S")));
 
-    println!("{}", merge_binary((lt1_role, lt1), (lt2_role, lt2)).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(lt1_role, lt1), (lt2_role, lt2)])).unwrap());
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn recursive_sum() {
     let server_mpst_local = get_rumpsteak_session_type_server().unwrap();
 
 
-    println!("{}", merge_binary((client_role, client_mpst_local), (server_role, server_mpst_local)).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(client_role, client_mpst_local), (server_role, server_mpst_local)])).unwrap());
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn test_triple_session_type() {
     println!("B.MPSTLocalType: {}", b_mpst_local);
     println!("C.MPSTLocalType: {}", c_mpst_local);
 
-    println!("{}", merge_locals(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)]).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)])).unwrap());
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn test_backtracking_triple() {
     println!("B.MPSTLocalType: {}", b_mpst_local);
     println!("C.MPSTLocalType: {}", c_mpst_local);
 
-    println!("{}", merge_locals(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)]).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)])).unwrap());
 }
 
 #[test]
@@ -438,5 +438,5 @@ fn test_recursive_triple() {
     println!("B.MPSTLocalType: {}", b_mpst_local);
     println!("C.MPSTLocalType: {}", c_mpst_local);
 
-    println!("{}", merge_locals(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)]).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)])).unwrap());
 }

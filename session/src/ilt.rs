@@ -201,9 +201,9 @@ impl LocalType {
             },
             LocalType::RecX(ty) => {
                 let ty = ty.to_session_type()?;
-                Ok(MPSTLocalType::RecX(Box::new(ty)))
+                Ok(MPSTLocalType::recX(Box::new(ty)))
             },
-            LocalType::X => Ok(MPSTLocalType::X),
+            LocalType::X => Ok(MPSTLocalType::x()),
             LocalType::End => Ok(MPSTLocalType::End)
         }
     }
