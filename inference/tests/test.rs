@@ -440,3 +440,75 @@ fn test_recursive_triple() {
 
     println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)])).unwrap());
 }
+
+#[test]
+fn eventually_synchronous_mpst() {
+    struct Hello;
+    struct Repeat1;
+    struct Repeat2;
+
+    impl Message for Hello {
+        fn receive() -> Self {
+            Hello
+        }
+    }
+
+    impl Message for Repeat1 {
+        fn receive() -> Self {
+            Repeat1
+        }
+    }
+
+    impl Message for Repeat2 {
+        fn receive() -> Self {
+            Repeat2
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn A(mut s: Session) {
+        s.send(Hello);
+        loop {
+            s.send(Repeat1);
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn B(mut s: Session) {
+        s.receive::<Hello>();
+        loop {
+            s.receive::<Repeat1>();
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn C(mut s: Session) {
+        loop {
+            s.receive::<Repeat2>();
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn D(mut s: Session) {
+        loop {
+            s.send(Repeat2);
+        }
+    }
+
+    let a_role = Participant::new(Some(String::from("A")));
+    let b_role = Participant::new(Some(String::from("B")));
+    let c_role = Participant::new(Some(String::from("C")));
+    let d_role = Participant::new(Some(String::from("D")));
+
+    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
+    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
+    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
+    let d_mpst_local = get_rumpsteak_session_type_D().unwrap();
+
+    println!("A.MPSTLocalType: {}", a_mpst_local);
+    println!("B.MPSTLocalType: {}", b_mpst_local);
+    println!("C.MPSTLocalType: {}", c_mpst_local);
+    println!("D.MPSTLocalType: {}", d_mpst_local);
+
+    println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local), (d_role, d_mpst_local)])).unwrap());
+}

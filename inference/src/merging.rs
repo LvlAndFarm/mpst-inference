@@ -40,23 +40,32 @@ pub struct Parties {
     pub parties: BTreeMap<Participant, MPSTLocalType>,
     pub global_depth: i32,
     pub local_depth: BTreeMap<Participant, i32>,
-    pub recursive_context: BTreeMap<Participant, RecursiveContext>,
+    pub recursive_context: RecursiveContext,
 }
 
 #[derive(Clone)]
 pub struct RecursiveContext {
-    pub local_depth: i32,
+    pub local_depths: BTreeMap<Participant, i32>,
     pub global_depth: i32
+}
+
+impl RecursiveContext {
+    pub fn init(participants: &[Participant]) -> Self {
+        RecursiveContext {
+            local_depths: BTreeMap::from_iter(participants.iter().map(|p| (p.clone(), 0))),
+            global_depth: 0,
+        }
+    }
 }
 
 impl Parties {
     pub fn new(parties: Vec<(Participant, MPSTLocalType)>) -> Self {
         let local_depth = BTreeMap::from_iter(parties.iter().map(|(p,_)| (p.clone(), 0)));
         Parties {
-            parties: parties.into_iter().collect(),
+            parties: parties.clone().into_iter().collect(),
             global_depth: 0,
             local_depth,
-            recursive_context: BTreeMap::new(),
+            recursive_context: RecursiveContext::init(parties.iter().map(|(p,_)| p.clone()).collect::<Vec<_>>().as_slice()),
         }
     }
 
@@ -96,21 +105,35 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
         }
     }
 
-    // The other reduction case is if all parties are End or X(_), in which case we can just return X
+    // The other reduction case is if all parties are End or compatible X(_), in which case we can just return X
+
+    let (ends, non_ends): (Vec<_>, Vec<_>) = parties.parties.iter().partition(|(_, lt)| matches!(lt, MPSTLocalType::End));
+
     let mut all_end_or_x = true;
-    let mut rec_depth = None;
-    for (_, lt) in &parties.parties {
+    let mut will_recurse = false;
+    for (p, lt) in non_ends {
         match lt {
-            MPSTLocalType::End => (),
             MPSTLocalType::X(depth) => {
-                if rec_depth.is_none() {
-                    rec_depth = Some(depth);
-                } else if rec_depth != Some(depth) {
-                    return Err(format!("Cannot merge local types {}", parties));
-                }
-            
+                will_recurse = true
             },
-            _ => all_end_or_x = false,
+            _ => {
+                all_end_or_x = false;
+                break
+            },
+        }
+    }
+
+    for (p, lt) in ends {
+        match lt {
+            MPSTLocalType::End => {
+                if will_recurse && parties.local_depth[p] != parties.recursive_context.local_depths[p] {
+                    all_end_or_x = false;
+                    break
+                }
+            },
+            _ => {
+                unreachable!("Ends should be End")
+            },
         }
     }
     if all_end_or_x {
@@ -132,6 +155,7 @@ fn unwrap_rec(parties: Parties) -> (bool, Parties) {
             MPSTLocalType::RecX {cont, ..} => {
                 new_parties.push((p.clone(), cont.map_x_to_depth(parties.global_depth)));
                 gen_new_rec = true;
+                
             }
             MPSTLocalType::End => {
                 new_parties.push((p.clone(), MPSTLocalType::End));
@@ -139,12 +163,24 @@ fn unwrap_rec(parties: Parties) -> (bool, Parties) {
             _ => return (false, parties),
         }
     }
-    (gen_new_rec, Parties {
+    let mut new_parties = Parties {
         parties: new_parties.into_iter().collect(),
         global_depth: parties.global_depth,
-        local_depth: parties.local_depth,
+        local_depth: parties.local_depth.clone(),
         recursive_context: parties.recursive_context,
-    })
+    };
+    if gen_new_rec {
+        new_parties.recursive_context.global_depth = parties.global_depth;
+        for (p, lt) in &new_parties.parties {
+            match lt {
+                MPSTLocalType::RecX {..} => {
+                    new_parties.recursive_context.local_depths.insert(p.clone(), parties.local_depth[p]);
+                }
+                _ => (),
+            }
+        }
+    }
+    (gen_new_rec, new_parties)
 }
 
 fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Parties) -> Result<GlobalType, String> {
@@ -166,12 +202,15 @@ fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Parties) -> Res
                         (p.clone(), lt.clone())
                     }
                 }).collect();
-                let new_parties = Parties {
+                let mut new_parties = Parties {
                     parties: new_parties,
                     global_depth: parties.global_depth,
                     local_depth: parties.local_depth.clone(),
                     recursive_context: parties.recursive_context.clone(),
                 };
+                new_parties.local_depth.insert(p1.clone(), parties.local_depth[&p1] + 1);
+                new_parties.local_depth.insert(p2.clone(), parties.local_depth[&p2] + 1);
+                new_parties.global_depth += 1;
 
                 match merge_locals(new_parties) {
                     Ok(gt) => new_conts.push((label, gt)),
@@ -194,12 +233,16 @@ fn reduce_then_merge(p1: Participant, p2: Participant, parties: &Parties) -> Res
                         (p.clone(), lt.clone())
                     }
                 }).collect();
-                let new_parties = Parties {
+                let mut new_parties = Parties {
                     parties: new_parties,
                     global_depth: parties.global_depth,
                     local_depth: parties.local_depth.clone(),
                     recursive_context: parties.recursive_context.clone()
                 };
+
+                new_parties.local_depth.insert(p1.clone(), parties.local_depth[&p1] + 1);
+                new_parties.local_depth.insert(p2.clone(), parties.local_depth[&p2] + 1);
+                new_parties.global_depth += 1;
 
                 match merge_locals(new_parties) {
                     Ok(gt) => new_conts.push((label, gt)),
@@ -238,7 +281,7 @@ fn enumerate_duals(parties: &Parties) -> Vec<(Participant, Participant)> {
             }
             MPSTLocalType::End => (),
             MPSTLocalType::X(_) => (),
-            _ => unimplemented!("Not implemented")
+            MPSTLocalType::RecX {..} => (),
         }
     }
     duals
