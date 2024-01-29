@@ -512,3 +512,76 @@ fn eventually_synchronous_mpst() {
 
     println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local), (d_role, d_mpst_local)])).unwrap());
 }
+
+#[test]
+fn nested_recursion() {
+    // Global type: RecX { A->B:Hi. RecY { B->A:Branch {1. X, 2. Y} } }
+    // Local type A: RecX { Send<B, Hi, RecY { Branch<B, {1. X, 2. Y} } } }
+    // Local type B: RecY { Receive<A, Hi, RecX { Select<A, {1. X, 2. Y} } } }
+
+    struct Hi;
+    enum Choice {
+        RepeatX,
+        RepeatY
+    }
+
+    impl Message for Hi {
+        fn receive() -> Self {
+            Hi
+        }
+    }
+
+    impl Message for Choice {
+        fn receive() -> Self {
+            Choice::RepeatX
+        }
+    }
+
+    let anon = Participant::anonymous();
+
+    let ltA = MPSTLocalType::recX_with_id(
+        Box::new(
+            MPSTLocalType::send(
+                anon.clone(),
+                String::from("Hi"),
+                MPSTLocalType::recX_with_id(
+                    Box::new(
+                        MPSTLocalType::Branch(
+                            anon.clone(),
+                            vec![
+                                (String::from("RepeatX"), MPSTLocalType::x_with_id(1)),
+                                (String::from("RepeatY"), MPSTLocalType::x_with_id(2))
+                            ]
+                        )
+                    ),
+                    2
+                )
+            )
+        ),
+        1
+    );
+
+    let ltB = MPSTLocalType::recX_with_id(
+        Box::new(
+            MPSTLocalType::receive(
+                anon.clone(),
+                String::from("Hi"),
+                MPSTLocalType::recX_with_id(
+                    Box::new(
+                        MPSTLocalType::Select(
+                            anon.clone(),
+                            vec![
+                                (String::from("RepeatX"), MPSTLocalType::x_with_id(1)),
+                                (String::from("RepeatY"), MPSTLocalType::x_with_id(2))
+                            ]
+                        )
+                    ),
+                    2
+                )
+            )
+        ),
+        1
+    );
+
+    println!("{}", merge_locals(Parties::new(vec![(Participant::new(Some(String::from("A"))), ltA), (Participant::new(Some(String::from("B"))), ltB)])).unwrap());
+}
