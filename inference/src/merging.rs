@@ -90,14 +90,11 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
         return Ok(GlobalType::End);
     }
 
-    let (gen_new_rec, parties) = unwrap_rec(parties);
-    if gen_new_rec {
-        return Ok(GlobalType::RecX(parties.global_depth, Box::new(merge_locals(parties)?)));
-    }
-
     let mut duals = enumerate_duals(&parties);
     duals.sort();
     duals.dedup();
+    println!("Duals: {:?}", duals);
+    // duals.reverse();
     for (p1, p2) in duals {
         match reduce_then_merge(p1.clone(), p2.clone(), &parties) {
             Ok(gt) => return Ok(gt),
@@ -105,12 +102,20 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
         }
     }
 
+    let (gen_new_rec, parties) = unwrap_rec(parties);
+    if gen_new_rec {
+        return Ok(GlobalType::RecX(parties.global_depth, Box::new(merge_locals(parties)?)));
+    }
+
     // The other reduction case is if all parties are End or compatible X(_), in which case we can just return X
+    // EXPERIMENTAL: Now we also ensure completeness by allowing matching of recursive calls with other ops, assuming they are compatible
+    // And leaving the end user to check the output with KMC
 
     let (ends, non_ends): (Vec<_>, Vec<_>) = parties.parties.iter().partition(|(_, lt)| matches!(lt, MPSTLocalType::End));
 
     let mut all_end_or_x = true;
     let mut will_recurse_to = None;
+    let mut is_unsychronised_recursion = false;
     for (_, lt) in non_ends {
         match lt {
             MPSTLocalType::X(depth, mapped) => {
@@ -120,11 +125,14 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
                     None => will_recurse_to = *depth,
                 }
             },
-            _ => {
-                all_end_or_x = true;
-                break
-            },
+            _ => is_unsychronised_recursion = true,
         }
+    }
+
+    if is_unsychronised_recursion && will_recurse_to.is_none() {
+        return Err(format!("Cannot merge local types, not all parties are recursing {}", parties));
+    } else if is_unsychronised_recursion && will_recurse_to.is_some() {
+        println!("ERROR: We do not know if these recursive types are compatible, PLEASE check with KMC")
     }
 
     for (p, lt) in ends {
@@ -132,6 +140,8 @@ pub fn merge_locals(parties: Parties) -> Result<GlobalType, String> {
             MPSTLocalType::End => {
                 match will_recurse_to {
                     None => (),
+                    // If the local depth is further ahead of where the recursion goes back to, 
+                    // then communication that should not be repeated (from this LT) will happen.
                     Some(depth) => if depth != parties.local_depth[p] {
                         all_end_or_x = false;
                         break
@@ -170,8 +180,15 @@ fn unwrap_rec(parties: Parties) -> (bool, Parties) {
             MPSTLocalType::End => {
                 new_parties.push((p.clone(), MPSTLocalType::End));
             }
-            _ => return (false, parties),
+            // By equivalence of cont == RecX(cont) where X not free in cont, we simply add RecX.
+            // In fact, as we are using global_depth, we don't need to check free vars, assuming well-defined local types
+            _ => {
+                new_parties.push((p.clone(), lt.clone()))
+            }
         }
+    }
+    if !gen_new_rec {
+        return (false, parties);
     }
     let mut new_parties = Parties {
         parties: new_parties.into_iter().collect(),
@@ -179,15 +196,13 @@ fn unwrap_rec(parties: Parties) -> (bool, Parties) {
         local_depth: parties.local_depth.clone(),
         recursive_context: parties.recursive_context,
     };
-    if gen_new_rec {
-        new_parties.recursive_context.global_depth = parties.global_depth;
-        for (p, lt) in &new_parties.parties {
-            match lt {
-                MPSTLocalType::RecX {..} => {
-                    new_parties.recursive_context.local_depths.insert(p.clone(), parties.local_depth[p]);
-                }
-                _ => (),
+    new_parties.recursive_context.global_depth = parties.global_depth;
+    for (p, lt) in &new_parties.parties {
+        match lt {
+            MPSTLocalType::RecX {..} => {
+                new_parties.recursive_context.local_depths.insert(p.clone(), parties.local_depth[p]);
             }
+            _ => (),
         }
     }
     (gen_new_rec, new_parties)

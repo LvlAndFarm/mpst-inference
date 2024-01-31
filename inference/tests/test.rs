@@ -384,7 +384,7 @@ fn test_backtracking_triple() {
     println!("B.MPSTLocalType: {}", b_mpst_local);
     println!("C.MPSTLocalType: {}", c_mpst_local);
 
-    println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local), (c_role, c_mpst_local)])).unwrap());
+    println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (c_role, c_mpst_local), (b_role, b_mpst_local)])).unwrap());
 }
 
 #[test]
@@ -583,5 +583,54 @@ fn nested_recursion() {
         1
     );
 
+    println!("A.MPSTLocalType: {}", ltA);
+    println!("B.MPSTLocalType: {}", ltB);
+
     println!("{}", merge_locals(Parties::new(vec![(Participant::new(Some(String::from("A"))), ltA), (Participant::new(Some(String::from("B"))), ltB)])).unwrap());
+}
+
+#[test]
+fn unsynchronised_recursion() {
+    struct Hi;
+    struct Hello;
+
+    impl Message for Hi {
+        fn receive() -> Self {
+            Hi
+        }
+    }
+
+    impl Message for Hello {
+        fn receive() -> Self {
+            Hello
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn A(mut s: Session) {
+        s.send(Hi);
+        loop {
+            s.receive::<Hello>();
+            s.send(Hi);
+        }
+    }
+
+    #[macros::infer_session_type]
+    fn B(mut s: Session) {
+        loop {
+            s.receive::<Hi>();
+            s.send(Hello);
+        }
+    }
+
+    let a_role = Participant::new(Some(String::from("A")));
+    let b_role = Participant::new(Some(String::from("B")));
+
+    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
+    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
+
+    println!("A.MPSTLocalType: {}", a_mpst_local);
+    println!("B.MPSTLocalType: {}", b_mpst_local);
+
+    println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local)])).unwrap());
 }
