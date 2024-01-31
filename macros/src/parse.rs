@@ -60,7 +60,7 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str, rec_id: i32) -> R
                                 }
                             } else if method_name == "receive" {
                                 // We need to find label from the turbofish used in the method call
-                                let turbofish = method_call.turbofish.as_ref().unwrap();
+                                let turbofish = method_call.turbofish.as_ref().ok_or("Receive call has no turbofish")?;
                                 let label = turbofish.args.first().unwrap();
                                 if let syn::GenericArgument::Type(ty) = label {
                                     if let syn::Type::Path(path) = ty {
