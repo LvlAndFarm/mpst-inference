@@ -93,8 +93,8 @@ fn simple_merge_inferred() {
     println!("Client.LocalType: {}", get_session_type_client());
     println!("Server.LocalType: {}", get_session_type_server());
 
-    let client_mpst_local = get_rumpsteak_session_type_client().unwrap();
-    let server_mpst_local = get_rumpsteak_session_type_server().unwrap();
+    let client_mpst_local = get_mpst_session_type_client().unwrap();
+    let server_mpst_local = get_mpst_session_type_server().unwrap();
 
 
     println!("{}", merge_locals(Parties::new(vec![(client_role, client_mpst_local), (server_role, server_mpst_local)])).unwrap());
@@ -230,8 +230,8 @@ fn recursive_sum() {
     println!("Client.LocalType: {}", get_session_type_client());
     println!("Server.LocalType: {}", get_session_type_server());
 
-    let client_mpst_local = get_rumpsteak_session_type_client().unwrap();
-    let server_mpst_local = get_rumpsteak_session_type_server().unwrap();
+    let client_mpst_local = get_mpst_session_type_client().unwrap();
+    let server_mpst_local = get_mpst_session_type_server().unwrap();
 
 
     println!("{}", merge_locals(Parties::new(vec![(client_role, client_mpst_local), (server_role, server_mpst_local)])).unwrap());
@@ -306,9 +306,9 @@ fn test_triple_session_type() {
     let b_role = Participant::new(Some(String::from("B")));
     let c_role = Participant::new(Some(String::from("C")));
 
-    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
-    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
-    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
+    let a_mpst_local = get_mpst_session_type_A().unwrap();
+    let b_mpst_local = get_mpst_session_type_B().unwrap();
+    let c_mpst_local = get_mpst_session_type_C().unwrap();
 
     println!("A.MPSTLocalType: {}", a_mpst_local);
     println!("B.MPSTLocalType: {}", b_mpst_local);
@@ -376,9 +376,9 @@ fn test_backtracking_triple() {
     let b_role = Participant::new(Some(String::from("B")));
     let c_role = Participant::new(Some(String::from("C")));
 
-    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
-    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
-    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
+    let a_mpst_local = get_mpst_session_type_A().unwrap();
+    let b_mpst_local = get_mpst_session_type_B().unwrap();
+    let c_mpst_local = get_mpst_session_type_C().unwrap();
 
     println!("A.MPSTLocalType: {}", a_mpst_local);
     println!("B.MPSTLocalType: {}", b_mpst_local);
@@ -430,9 +430,9 @@ fn test_recursive_triple() {
     let b_role = Participant::new(Some(String::from("B")));
     let c_role = Participant::new(Some(String::from("C")));
 
-    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
-    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
-    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
+    let a_mpst_local = get_mpst_session_type_A().unwrap();
+    let b_mpst_local = get_mpst_session_type_B().unwrap();
+    let c_mpst_local = get_mpst_session_type_C().unwrap();
 
     println!("A.MPSTLocalType: {}", a_mpst_local);
     println!("B.MPSTLocalType: {}", b_mpst_local);
@@ -500,10 +500,10 @@ fn eventually_synchronous_mpst() {
     let c_role = Participant::new(Some(String::from("C")));
     let d_role = Participant::new(Some(String::from("D")));
 
-    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
-    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
-    let c_mpst_local = get_rumpsteak_session_type_C().unwrap();
-    let d_mpst_local = get_rumpsteak_session_type_D().unwrap();
+    let a_mpst_local = get_mpst_session_type_A().unwrap();
+    let b_mpst_local = get_mpst_session_type_B().unwrap();
+    let c_mpst_local = get_mpst_session_type_C().unwrap();
+    let d_mpst_local = get_mpst_session_type_D().unwrap();
 
     println!("A.MPSTLocalType: {}", a_mpst_local);
     println!("B.MPSTLocalType: {}", b_mpst_local);
@@ -626,8 +626,8 @@ fn unsynchronised_recursion() {
     let a_role = Participant::new(Some(String::from("A")));
     let b_role = Participant::new(Some(String::from("B")));
 
-    let a_mpst_local = get_rumpsteak_session_type_A().unwrap();
-    let b_mpst_local = get_rumpsteak_session_type_B().unwrap();
+    let a_mpst_local = get_mpst_session_type_A().unwrap();
+    let b_mpst_local = get_mpst_session_type_B().unwrap();
 
     println!("A.MPSTLocalType: {}", a_mpst_local);
     println!("B.MPSTLocalType: {}", b_mpst_local);

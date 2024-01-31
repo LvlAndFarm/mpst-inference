@@ -22,8 +22,8 @@ pub fn infer_session_type(_attr: TokenStream, item: TokenStream) -> TokenStream 
     println!("{}", ilt_tokens);
     let session_type_id = format_ident!("get_session_type_{}", fn_ident);
 
-    let rumpsteak_session_type_id = format_ident!("get_rumpsteak_session_type_{}", fn_ident);
-    let rumpsteak_session_type_tokens: proc_macro2::TokenStream = match local_type.to_session_type() {
+    let mpst_session_type_id = format_ident!("get_mpst_session_type_{}", fn_ident);
+    let mpst_session_type_tokens: proc_macro2::TokenStream = match local_type.to_session_type() {
         Ok(rs_type) => {
             println!("MPST output: {}", rs_type);
             let rs_type = rs_type.to_syn_ast();
@@ -37,7 +37,7 @@ pub fn infer_session_type(_attr: TokenStream, item: TokenStream) -> TokenStream 
             }
         }
     };
-    println!("{}", rumpsteak_session_type_tokens);
+    println!("{}", mpst_session_type_tokens);
 
     println!("{}", session_type_id);
     (quote::quote! {
@@ -51,12 +51,12 @@ pub fn infer_session_type(_attr: TokenStream, item: TokenStream) -> TokenStream 
             #ilt_tokens
         }
 
-        fn #rumpsteak_session_type_id () -> Result<::session::session_type::MPSTLocalType, String> {
+        fn #mpst_session_type_id () -> Result<::session::session_type::MPSTLocalType, String> {
             use ::session::session_type::Participant;
             use ::session::session_type::MPSTLocalType;
             use ::session::session_type::MPSTLocalType::*;
 
-            #rumpsteak_session_type_tokens
+            #mpst_session_type_tokens
         }
     }).into()
     // (String::from("fn print_session_type() { println!(\"{}\", \"") + &output.to_string() + "\") }").parse().unwrap()

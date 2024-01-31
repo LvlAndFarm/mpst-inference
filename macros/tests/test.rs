@@ -131,7 +131,7 @@ fn example_external_choice(mut s: Session) {
 #[test]
 fn it_works() {
     println!("{}", get_session_type_example_external_choice());
-    println!("{}", get_rumpsteak_session_type_example_external_choice().unwrap());
+    println!("{}", get_mpst_session_type_example_external_choice().unwrap());
     // let result = add(2, 2);
     // assert_eq!(result, 4);
 }
