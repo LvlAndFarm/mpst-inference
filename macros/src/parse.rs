@@ -13,6 +13,11 @@ pub fn infer_block_session_type(item: &syn::Block, rec_id: i32) -> Result<Partia
                     actions.push(action);
                 }
             }
+            syn::Stmt::Local(local) => {
+                if let Some(action) = gen_session_type(local.init.clone().unwrap().expr.as_ref(), session_var, rec_id)? {
+                    actions.push(action);
+                }
+            }
             _ => {}
         }
     }
@@ -55,8 +60,16 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str, rec_id: i32) -> R
                                 } else if let syn::Expr::Path(path) = arg {
                                     let label = path.path.segments.last().ok_or("Invalid Path in send call")?.ident.to_string();
                                     return Ok(Some(Send(label, Box::new(End))));
-                                } else {
-                                    return Err("Invalid send call".to_string());
+                                } else if let syn::Expr::Call(call) = arg {
+                                    match &*call.func {
+                                        syn::Expr::Path(path) => {
+                                            let label = path.path.segments.last().ok_or("Invalid Path in send call")?.ident.to_string();
+                                            return Ok(Some(Send(label, Box::new(End))));
+                                        },
+                                        _ => return Err(format!("Invalid send call: {:?}", arg.span().source_text().unwrap()))
+                                    }
+                                } else  {
+                                    return Err(format!("Invalid send call: {:?}", arg.span().source_text().unwrap()));
                                 }
                             } else if method_name == "receive" {
                                 // We need to find label from the turbofish used in the method call
@@ -238,6 +251,7 @@ pub fn gen_session_type(expr: &syn::Expr, session_ident: &str, rec_id: i32) -> R
             println!("Parsing paren");
             gen_session_type(&paren.expr, session_ident, rec_id)
         },
+        syn::Expr::Field(_) => Ok(None),
         _ => Err(format!("Unsupported Rust construct: {}, of type {:?}", 
                 expr.span().source_text().unwrap_or(String::from("ERROR printing expr")),
                 expr.to_token_stream()

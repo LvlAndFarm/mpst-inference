@@ -634,3 +634,4 @@ fn unsynchronised_recursion() {
 
     println!("{}", merge_locals(Parties::new(vec![(a_role, a_mpst_local), (b_role, b_mpst_local)])).unwrap());
 }
+
